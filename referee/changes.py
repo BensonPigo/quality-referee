@@ -23,7 +23,7 @@ def changed_lines(base, root):
     except RefereeError as e:
         raise RefereeError("找不到 {} 和 HEAD 的分岔點（CI 上要把 git 歷史完整抓下來）\n{}".format(base, e))
 
-    diff = git(root, "diff", "-U0", "--no-color", "--no-ext-diff", "--no-renames", "--relative",
+    diff = git(root, "diff", "-U0", "--no-color", "--no-ext-diff", "--find-renames", "--relative",
                "--ignore-cr-at-eol", merge_base, "--")
     changed = defaultdict(list)
     file = None

@@ -71,6 +71,19 @@ class ChangedLines(unittest.TestCase):
         git(root, "checkout", "-q", "feature")
         self.assertEqual(changed_lines("main", root), {"a.go": [(2, 2)]})
 
+    def test_rename_counts_only_the_edited_lines(self):
+        root = self.repo({"old.go": lines(20)})
+        git(root, "mv", "old.go", "new.go")
+        write(root, "new.go", lines(20).replace("line 10\n", "EDITED\n"))
+        git(root, "add", "-A")
+        self.assertEqual(changed_lines("main", root), {"new.go": [(10, 10)]})
+
+    def test_rename_without_edit_counts_nothing(self):
+        root = self.repo({"old.go": lines(20)})
+        git(root, "mv", "old.go", "new.go")
+        commit_all(root)
+        self.assertEqual(changed_lines("main", root), {})
+
     def test_unknown_base(self):
         root = self.repo({"a.go": lines(3)})
         with self.assertRaises(RefereeError) as cm:
