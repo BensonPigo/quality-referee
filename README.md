@@ -143,10 +143,14 @@ selftest 的 gate.sh 情境把這個 repo 的 `git ls-files` 複製到範例的 
 
 ## 驗證狀態
 
-已驗證：單元測試、selftest 的 Go 範例情境（含 gate.sh 情境），和 quality-tools v2.4.0 對照範例專案的 CRAP 表和抓錯計數。
+已驗證：
+
+- 單元測試、selftest 的 Go 範例情境（含 gate.sh 情境）：本機 Windows（Git for Windows 的 bash），以及每次推送和 PR 時的 GitHub Actions（`.github/workflows/selftest.yml`，ubuntu-latest）。
+- 和 quality-tools v2.4.0 對照：Go 範例專案的 CRAP 表和抓錯計數（package、module 兩種範圍）；BeThere 整個專案的 CRAP 表（module 範圍，329 列）和 `internal/rundown` 的抓錯計數。
+- 照這份 README 在 BeThere 的暫存 clone 掛上工具：第一、二關通過；改壞一個測試時 gate.sh 擋下。
 
 還沒驗證：
 
-- `templates/go/workflows/go.yml` 和 `.github/workflows/selftest.yml` 還沒在 GitHub Actions 的 runner 上跑過，本機只確認 YAML 能解析、結構正確（沒有 actionlint）。第一次在 runner 上跑時，`python` 指令、`go-version-file`、submodule 的存取權杖都可能要調整。
-- 只在 Windows（Git for Windows 的 bash）上跑過；Linux、macOS 上的 gate.sh 和 selftest 還沒跑過。
+- `templates/go/workflows/go.yml` 還沒在 runner 上跑過，本機只確認 YAML 能解析、結構正確（沒有 actionlint）。第一次在專案的 runner 上跑時，submodule 的存取權杖可能要調整。範本用的 actions 是 v7（Node 24），Gitea 的 act_runner 支不支援還沒確認。
+- macOS 上還沒跑過。
 - Claude Code 實際觸發 Stop hook 的流程沒有跑過，selftest 只用 shell 步驟直接執行 gate.sh。

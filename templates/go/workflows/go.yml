@@ -11,17 +11,17 @@ jobs:
   referee:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # 要比對 git 歷史才知道改了哪些地方，不能只抓最新一版
           submodules: true # 一起抓 tools/referee 指向的工具版本
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
       # 範本的檢查員指令寫 python，runner 上要有
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
