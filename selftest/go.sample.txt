@@ -1,0 +1,169 @@
+# 範例專案 go。不要直接編輯，用 python selftest.py --unpack go <目錄> 解開，改完用 --pack 存回
+--- file: .referee.json
+{
+  "version": 1,
+  "base": "origin/main",
+  "gates": ["test", "crap", "mutation"],
+  "sources": ["**/*.go"],
+  "tests": ["**/*_test.go"],
+  "exclude": ["tools/", "vendor/", "node_modules/"],
+  "test": {"command": ["go", "test", "./..."]},
+  "crap": {
+    "threshold": 12,
+    "inspector": ["{python}", "{go_inspector}", "functions"]
+  },
+  "mutation": {
+    "kill_rate_threshold": 80,
+    "reach_rate_threshold": 0,
+    "inspector": ["{python}", "{go_inspector}", "mutants"]
+  }
+}
+
+--- file: checkout.go
+// Package checkout 計算購物車結帳金額。
+//
+// 需求規格：
+//  1. 購物車是空的，金額為 0
+//  2. 數量 <= 0 的商品略過不算
+//  3. 非特價商品：會員九折、VIP 八五折；特價商品不再打折
+//  4. 優惠券 SAVE100：打折後小計滿 1000 元，再折 100 元
+//  5. 折完優惠券後滿 3000 元，再折 300 元
+//  6. 運費：小計未滿 1000 元收 100 元；VIP 或優惠券 FREESHIP 免運；優惠券 HALFSHIP 運費 50 元
+package checkout
+
+// MemberLevel 會員等級。
+type MemberLevel int
+
+const (
+	NonMember MemberLevel = iota
+	Member
+	VIP
+)
+
+// Item 購物車中的一項商品。
+type Item struct {
+	Price  int
+	Qty    int
+	OnSale bool // 特價商品
+}
+
+// Checkout 計算結帳金額（含運費）。
+//
+// ⚠️ 這是故意寫亂的函式：所有規則都塞在同一個函式裡，圈複雜度 14。
+func Checkout(items []Item, level MemberLevel, coupon string) int {
+	if len(items) == 0 {
+		return 0
+	}
+
+	total := 0
+	for _, it := range items {
+		if it.Qty <= 0 {
+			continue
+		}
+		line := it.Price * it.Qty
+		if !it.OnSale {
+			if level == Member {
+				line = line * 90 / 100
+			} else if level == VIP {
+				line = line * 85 / 100
+			}
+		}
+		total += line
+	}
+
+	if coupon == "SAVE100" && total >= 1000 {
+		total -= 100
+	}
+	if total >= 3000 {
+		total -= 300
+	}
+
+	shipping := 0
+	if total < 1000 && level != VIP && coupon != "FREESHIP" {
+		shipping = 100
+		if coupon == "HALFSHIP" {
+			shipping = 50
+		}
+	}
+	return total + shipping
+}
+
+--- file: checkout_test.go
+package checkout
+
+import "testing"
+
+// 每個 want（正確答案）都是依照需求規格親手算出的寫死數字。
+func TestCheckout(t *testing.T) {
+	tests := []struct {
+		name   string
+		items  []Item
+		level  MemberLevel
+		coupon string
+		want   int
+	}{
+		{"空購物車", nil, NonMember, "", 0},
+		{"非會員_500元_加運費100", []Item{{500, 1, false}}, NonMember, "", 600},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Checkout(tt.items, tt.level, tt.coupon)
+			if got != tt.want {
+				t.Errorf("Checkout() = %d，規格要求 %d（借貸不平）", got, tt.want)
+			}
+		})
+	}
+}
+
+--- file: go.mod
+module shop
+
+go 1.27.3
+
+--- file: notest/add.go
+package notest
+
+func Add(a, b int) int { return a + b }
+
+--- file: shipping/fee.go
+package shipping
+
+// Fee 依金額和地區算運費。
+func Fee(total int, region string) int {
+	if total >= 1000 {
+		return 0
+	}
+	if region == "離島" {
+		return 180
+	}
+	return 60
+}
+
+// Weight 依重量加價。
+func Weight(kg int) int {
+	if kg > 20 {
+		return 200
+	}
+	if kg > 10 {
+		return 100
+	}
+	if kg > 5 {
+		return 50
+	}
+	if kg > 2 {
+		return 20
+	}
+	return 0
+}
+
+--- file: shipping/fee_test.go
+package shipping
+
+import "testing"
+
+func TestFee(t *testing.T) {
+	if got := Fee(1000, "本島"); got != 0 {
+		t.Errorf("got %d, want 0", got)
+	}
+}

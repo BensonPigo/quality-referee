@@ -1,0 +1,828 @@
+{
+ "scenarios": [
+  {
+   "name": "沒改東西：CRAP 通過",
+   "run": [
+    "crap",
+    "--base",
+    "main"
+   ],
+   "exit": 0,
+   "contains": [
+    "PASS：這次沒有改到任何函式"
+   ]
+  },
+  {
+   "name": "沒改東西：抓錯檢查通過",
+   "run": [
+    "mutation",
+    "--base",
+    "main"
+   ],
+   "exit": 0,
+   "contains": [
+    "PASS：這次沒有改到正式程式碼"
+   ]
+  },
+  {
+   "name": "改到沒有測試的舊函式 Weight：CRAP 沒過，要補測試",
+   "edits": [
+    {
+     "file": "shipping/fee.go",
+     "old": "return 50",
+     "new": "return 55"
+    }
+   ],
+   "run": [
+    "crap",
+    "--base",
+    "main"
+   ],
+   "exit": 1,
+   "contains": [
+    "覆蓋率要到 35%",
+    "FAIL：1 個函式"
+   ]
+  },
+  {
+   "name": "測試失敗：test 結束碼 1",
+   "edits": [
+    {
+     "file": "shipping/fee_test.go",
+     "old": "got != 0 {",
+     "new": "got != 5 {"
+    }
+   ],
+   "run": [
+    "test"
+   ],
+   "exit": 1
+  },
+  {
+   "name": "測試失敗：crap 結束碼 2（檢查員失敗）",
+   "edits": [
+    {
+     "file": "shipping/fee_test.go",
+     "old": "got != 0 {",
+     "new": "got != 5 {"
+    }
+   ],
+   "run": [
+    "crap",
+    "--base",
+    "main"
+   ],
+   "exit": 2,
+   "contains": [
+    "檢查員",
+    "量測失敗",
+    "測試沒有全部通過"
+   ]
+  },
+  {
+   "name": "--coverage-scope module：別的套件的測試跑到 Weight 也算覆蓋率，改 Weight 的 CRAP 通過",
+   "edits": [
+    {
+     "file": "shipping/fee.go",
+     "old": "return 50",
+     "new": "return 55"
+    },
+    {
+     "file": "crossuse/doc.go",
+     "content": "// Package crossuse 只放從別的套件測 shipping 的測試。\npackage crossuse\n"
+    },
+    {
+     "file": "crossuse/weight_test.go",
+     "content": "package crossuse\n\nimport (\n\t\"testing\"\n\n\t\"shop/shipping\"\n)\n\n// 從別的套件測 shipping.Weight：只有 coverage_scope = module 時才算進 Weight 的覆蓋率。\nfunc TestWeightFromOtherPackage(t *testing.T) {\n\tif shipping.Weight(25) != 200 || shipping.Weight(15) != 100 || shipping.Weight(1) != 0 {\n\t\tt.Fatal(\"Weight\")\n\t}\n}\n"
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"{go_inspector}\", \"functions\"]",
+     "new": "\"{go_inspector}\", \"functions\", \"--coverage-scope\", \"module\"]"
+    }
+   ],
+   "run": [
+    "crap",
+    "--base",
+    "main",
+    "--json",
+    "out-crap.json"
+   ],
+   "exit": 0,
+   "contains": [
+    "PASS",
+    "檢查員設定：coverage_scope module、workers null"
+   ],
+   "json": "out-crap.json",
+   "json_values": {
+    "inspector.settings.coverage_scope": "module",
+    "inspector.tools.gocyclo": "v0.6.0"
+   }
+  },
+  {
+   "name": "不加 --coverage-scope（預設 package）：別的套件的測試不算，改 Weight 的 CRAP 沒過",
+   "edits": [
+    {
+     "file": "shipping/fee.go",
+     "old": "return 50",
+     "new": "return 55"
+    },
+    {
+     "file": "crossuse/doc.go",
+     "content": "// Package crossuse 只放從別的套件測 shipping 的測試。\npackage crossuse\n"
+    },
+    {
+     "file": "crossuse/weight_test.go",
+     "content": "package crossuse\n\nimport (\n\t\"testing\"\n\n\t\"shop/shipping\"\n)\n\n// 從別的套件測 shipping.Weight：只有 coverage_scope = module 時才算進 Weight 的覆蓋率。\nfunc TestWeightFromOtherPackage(t *testing.T) {\n\tif shipping.Weight(25) != 200 || shipping.Weight(15) != 100 || shipping.Weight(1) != 0 {\n\t\tt.Fatal(\"Weight\")\n\t}\n}\n"
+    }
+   ],
+   "run": [
+    "crap",
+    "--base",
+    "main",
+    "--json",
+    "out-crap.json"
+   ],
+   "exit": 1,
+   "contains": [
+    "覆蓋率要到 35%",
+    "FAIL：1 個函式",
+    "檢查員設定：coverage_scope package"
+   ],
+   "json": "out-crap.json",
+   "json_values": {
+    "inspector.settings.coverage_scope": "package"
+   }
+  },
+  {
+   "name": "--coverage-scope module 的抓錯檢查：改 Weight 的條件，別的套件的測試會跑到改壞的版本，測到率 100%",
+   "edits": [
+    {
+     "file": "shipping/fee.go",
+     "old": "if kg > 20 {",
+     "new": "if kg > 21 {"
+    },
+    {
+     "file": "crossuse/doc.go",
+     "content": "// Package crossuse 只放從別的套件測 shipping 的測試。\npackage crossuse\n"
+    },
+    {
+     "file": "crossuse/weight_test.go",
+     "content": "package crossuse\n\nimport (\n\t\"testing\"\n\n\t\"shop/shipping\"\n)\n\n// 從別的套件測 shipping.Weight：只有 coverage_scope = module 時才算進 Weight 的覆蓋率。\nfunc TestWeightFromOtherPackage(t *testing.T) {\n\tif shipping.Weight(25) != 200 || shipping.Weight(15) != 100 || shipping.Weight(1) != 0 {\n\t\tt.Fatal(\"Weight\")\n\t}\n}\n"
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"{go_inspector}\", \"mutants\"]",
+     "new": "\"{go_inspector}\", \"mutants\", \"--coverage-scope\", \"module\"]"
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"kill_rate_threshold\": 80",
+     "new": "\"kill_rate_threshold\": 0"
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"reach_rate_threshold\": 0",
+     "new": "\"reach_rate_threshold\": 50"
+    }
+   ],
+   "run": [
+    "mutation",
+    "--base",
+    "main",
+    "--json",
+    "out-mut.json"
+   ],
+   "exit": 0,
+   "contains": [
+    "PASS",
+    "檢查員設定：coverage_scope module"
+   ],
+   "json": "out-mut.json",
+   "json_values": {
+    "inspector.tools.gremlins": "v0.6.0",
+    "inspector.settings.coverage_scope": "module",
+    "mutation.counts.NOT_COVERED": 0,
+    "mutation.counts.KILLED": 1,
+    "mutation.counts.LIVED": 1,
+    "mutation.reach_rate": 100.0
+   }
+  },
+  {
+   "name": "不加 --coverage-scope 的抓錯檢查：只跑 shipping 自己的測試，改壞的版本都是測試沒跑到，測到率 0%",
+   "edits": [
+    {
+     "file": "shipping/fee.go",
+     "old": "if kg > 20 {",
+     "new": "if kg > 21 {"
+    },
+    {
+     "file": "crossuse/doc.go",
+     "content": "// Package crossuse 只放從別的套件測 shipping 的測試。\npackage crossuse\n"
+    },
+    {
+     "file": "crossuse/weight_test.go",
+     "content": "package crossuse\n\nimport (\n\t\"testing\"\n\n\t\"shop/shipping\"\n)\n\n// 從別的套件測 shipping.Weight：只有 coverage_scope = module 時才算進 Weight 的覆蓋率。\nfunc TestWeightFromOtherPackage(t *testing.T) {\n\tif shipping.Weight(25) != 200 || shipping.Weight(15) != 100 || shipping.Weight(1) != 0 {\n\t\tt.Fatal(\"Weight\")\n\t}\n}\n"
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"kill_rate_threshold\": 80",
+     "new": "\"kill_rate_threshold\": 0"
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"reach_rate_threshold\": 0",
+     "new": "\"reach_rate_threshold\": 50"
+    }
+   ],
+   "run": [
+    "mutation",
+    "--base",
+    "main",
+    "--json",
+    "out-mut.json"
+   ],
+   "exit": 1,
+   "contains": [
+    "測到率：0.00%"
+   ],
+   "json": "out-mut.json",
+   "json_values": {
+    "inspector.settings.coverage_scope": "package",
+    "mutation.counts.KILLED": 0,
+    "mutation.reach_rate": 0.0
+   }
+  },
+  {
+   "name": "只改函式外面的註解：不算改到函式",
+   "edits": [
+    {
+     "file": "shipping/fee.go",
+     "old": "// Fee 依金額和地區算運費。",
+     "new": "// Fee 依金額和地區計算運費。"
+    }
+   ],
+   "run": [
+    "crap",
+    "--base",
+    "main"
+   ],
+   "exit": 0,
+   "contains": [
+    "PASS：這次沒有改到任何函式"
+   ]
+  },
+  {
+   "name": "fee 的免運門檻改成 999：邊界的改壞版本沒抓到，抓錯率門檻 100 時沒過，json 帶 tools 和 settings",
+   "edits": [
+    {
+     "file": "shipping/fee.go",
+     "old": "if total >= 1000 {",
+     "new": "if total >= 999 {"
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"kill_rate_threshold\": 80",
+     "new": "\"kill_rate_threshold\": 100"
+    }
+   ],
+   "run": [
+    "mutation",
+    "--base",
+    "main",
+    "--json",
+    "out-mut.json"
+   ],
+   "exit": 1,
+   "contains": [
+    "沒抓到",
+    "把 `>=` 改成 `>`",
+    "FAIL：",
+    "檢查員設定：coverage_scope package、workers null"
+   ],
+   "not_contains": [
+    "略過"
+   ],
+   "json": "out-mut.json",
+   "json_values": {
+    "inspector.tools.gremlins": "v0.6.0",
+    "inspector.settings.workers": null,
+    "mutation.mutants.mutator=CONDITIONALS_BOUNDARY.original": ">=",
+    "mutation.mutants.mutator=CONDITIONALS_BOUNDARY.replacement": ">"
+   }
+  },
+  {
+   "name": "--workers 寫進 settings",
+   "edits": [
+    {
+     "file": "shipping/fee.go",
+     "old": "if total >= 1000 {",
+     "new": "if total >= 999 {"
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"kill_rate_threshold\": 80",
+     "new": "\"kill_rate_threshold\": 0"
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"{go_inspector}\", \"mutants\"]",
+     "new": "\"{go_inspector}\", \"mutants\", \"--workers\", \"2\"]"
+    }
+   ],
+   "run": [
+    "mutation",
+    "--base",
+    "main",
+    "--json",
+    "out-mut.json"
+   ],
+   "exit": 0,
+   "contains": [
+    "檢查員設定：coverage_scope package、workers 2"
+   ],
+   "json": "out-mut.json",
+   "json_values": {
+    "inspector.settings.workers": 2
+   }
+  },
+  {
+   "name": "套件裡有沒改到的 ee.go：--base 時只對改到的 fee.go 產生改壞版本，ee.go 被略過（ee.go 是 fee.go 的字尾，樣式沒錨定開頭就會連 fee.go 一起排除）",
+   "commit_edits": [
+    {
+     "file": "shipping/ee.go",
+     "content": "package shipping\n\n// Extra 是 selftest 加的第二個程式檔，fee.go 改到、它沒改到時應該被略過。\nfunc Extra(n int) int {\n\tif n > 3 {\n\t\treturn n + 1\n\t}\n\treturn n\n}\n"
+    },
+    {
+     "file": "shipping/ee_test.go",
+     "content": "package shipping\n\nimport \"testing\"\n\nfunc TestExtra(t *testing.T) {\n\tif Extra(5) != 6 || Extra(1) != 1 {\n\t\tt.Fatal(\"Extra\")\n\t}\n}\n"
+    }
+   ],
+   "edits": [
+    {
+     "file": "shipping/fee.go",
+     "old": "if total >= 1000 {",
+     "new": "if total >= 999 {"
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"kill_rate_threshold\": 80",
+     "new": "\"kill_rate_threshold\": 0"
+    }
+   ],
+   "run": [
+    "mutation",
+    "--base",
+    "main",
+    "--json",
+    "out-mut.json"
+   ],
+   "exit": 0,
+   "contains": [
+    "沒抓到  shipping/fee.go:5:11"
+   ],
+   "not_contains": [
+    "排除沒改到的檔案沒有生效"
+   ],
+   "json": "out-mut.json",
+   "json_values": {
+    "mutation.mutants.0.file": "shipping/fee.go",
+    "mutation.counts.LIVED": 1
+   }
+  },
+  {
+   "name": "只改到沒有可以改壞地方的 name.go，同套件其他檔案都略過：gremlins 沒有結果檔也算通過",
+   "commit_edits": [
+    {
+     "file": "shipping/name.go",
+     "content": "package shipping\n\n// Name 只有常數，沒有可以改壞的地方。\nconst Name = \"shipping\"\n"
+    }
+   ],
+   "edits": [
+    {
+     "file": "shipping/name.go",
+     "old": "\"shipping\"",
+     "new": "\"delivery\""
+    }
+   ],
+   "run": [
+    "mutation",
+    "--base",
+    "main"
+   ],
+   "exit": 0,
+   "contains": [
+    "PASS：改到的行沒有量到改壞的版本"
+   ]
+  },
+  {
+   "name": "有一個沒有可以改壞地方的套件（只有 doc.go 和測試）：不加 --base 的 mutation 跑得完",
+   "commit_edits": [
+    {
+     "file": "docsonly/doc.go",
+     "content": "// Package docsonly 只有說明和測試，沒有可以改壞的程式碼。\npackage docsonly\n"
+    },
+    {
+     "file": "docsonly/doc_test.go",
+     "content": "package docsonly\n\nimport \"testing\"\n\nfunc TestNothing(t *testing.T) {}\n"
+    }
+   ],
+   "run": [
+    "mutation"
+   ],
+   "exit": 1,
+   "contains": [
+    "FAIL：抓錯率低於門檻"
+   ],
+   "not_contains": [
+    "gremlins 執行失敗"
+   ]
+  },
+  {
+   "name": "新增還沒 commit 的檔案：算改到",
+   "edits": [
+    {
+     "file": "notest/sub.go",
+     "content": "package notest\n\nfunc Sub(a, b int) int {\n\treturn a - b\n}\n"
+    }
+   ],
+   "run": [
+    "crap",
+    "--base",
+    "main"
+   ],
+   "exit": 0,
+   "contains": [
+    "共 1 個",
+    "Sub"
+   ]
+  },
+  {
+   "name": "exclude 裡的套件（web/broken 測試一定失敗）：crap 的 package 範圍通過",
+   "edits": [
+    {
+     "file": "web/broken/broken.go",
+     "content": "package broken\n\n// Broken 讓 gremlins 和 CRAP 有東西可量。\nfunc Broken(n int) int {\n\tif n > 1 {\n\t\treturn n\n\t}\n\treturn 0\n}\n"
+    },
+    {
+     "file": "web/broken/broken_test.go",
+     "content": "package broken\n\nimport \"testing\"\n\nfunc TestAlwaysFails(t *testing.T) {\n\tt.Fatal(\"這個套件的測試一定失敗\")\n}\n"
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"exclude\": [\"tools/\", \"vendor/\", \"node_modules/\"]",
+     "new": "\"exclude\": [\"tools/\", \"vendor/\", \"node_modules/\", \"web/\"]"
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"gates\": [\"test\", \"crap\", \"mutation\"]",
+     "new": "\"gates\": [\"crap\", \"mutation\"]"
+    },
+    {
+     "file": "checkout.go",
+     "delete": true
+    },
+    {
+     "file": "checkout_test.go",
+     "delete": true
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"threshold\": 12",
+     "new": "\"threshold\": 100"
+    }
+   ],
+   "run": [
+    "crap"
+   ],
+   "exit": 0,
+   "not_contains": [
+    "Broken"
+   ]
+  },
+  {
+   "name": "exclude 裡的套件：crap 的 module 範圍通過（-coverpkg 不含 web/broken）",
+   "edits": [
+    {
+     "file": "web/broken/broken.go",
+     "content": "package broken\n\n// Broken 讓 gremlins 和 CRAP 有東西可量。\nfunc Broken(n int) int {\n\tif n > 1 {\n\t\treturn n\n\t}\n\treturn 0\n}\n"
+    },
+    {
+     "file": "web/broken/broken_test.go",
+     "content": "package broken\n\nimport \"testing\"\n\nfunc TestAlwaysFails(t *testing.T) {\n\tt.Fatal(\"這個套件的測試一定失敗\")\n}\n"
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"exclude\": [\"tools/\", \"vendor/\", \"node_modules/\"]",
+     "new": "\"exclude\": [\"tools/\", \"vendor/\", \"node_modules/\", \"web/\"]"
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"gates\": [\"test\", \"crap\", \"mutation\"]",
+     "new": "\"gates\": [\"crap\", \"mutation\"]"
+    },
+    {
+     "file": "checkout.go",
+     "delete": true
+    },
+    {
+     "file": "checkout_test.go",
+     "delete": true
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"threshold\": 12",
+     "new": "\"threshold\": 100"
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"{go_inspector}\", \"functions\"]",
+     "new": "\"{go_inspector}\", \"functions\", \"--coverage-scope\", \"module\"]"
+    }
+   ],
+   "run": [
+    "crap"
+   ],
+   "exit": 0,
+   "not_contains": [
+    "Broken"
+   ]
+  },
+  {
+   "name": "exclude 裡的套件：mutation 的 package 範圍通過（不跑 web/broken）",
+   "edits": [
+    {
+     "file": "web/broken/broken.go",
+     "content": "package broken\n\n// Broken 讓 gremlins 和 CRAP 有東西可量。\nfunc Broken(n int) int {\n\tif n > 1 {\n\t\treturn n\n\t}\n\treturn 0\n}\n"
+    },
+    {
+     "file": "web/broken/broken_test.go",
+     "content": "package broken\n\nimport \"testing\"\n\nfunc TestAlwaysFails(t *testing.T) {\n\tt.Fatal(\"這個套件的測試一定失敗\")\n}\n"
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"exclude\": [\"tools/\", \"vendor/\", \"node_modules/\"]",
+     "new": "\"exclude\": [\"tools/\", \"vendor/\", \"node_modules/\", \"web/\"]"
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"gates\": [\"test\", \"crap\", \"mutation\"]",
+     "new": "\"gates\": [\"crap\", \"mutation\"]"
+    },
+    {
+     "file": "checkout.go",
+     "delete": true
+    },
+    {
+     "file": "checkout_test.go",
+     "delete": true
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"kill_rate_threshold\": 80",
+     "new": "\"kill_rate_threshold\": 0"
+    }
+   ],
+   "run": [
+    "mutation"
+   ],
+   "exit": 0,
+   "not_contains": [
+    "web/broken"
+   ]
+  },
+  {
+   "name": "exclude 裡的套件：mutation 的 module 範圍結束碼 2（已知限制：gremlins --integration 從模組根目錄跑 go test ./...，排除的套件測試照樣會跑）",
+   "edits": [
+    {
+     "file": "web/broken/broken.go",
+     "content": "package broken\n\n// Broken 讓 gremlins 和 CRAP 有東西可量。\nfunc Broken(n int) int {\n\tif n > 1 {\n\t\treturn n\n\t}\n\treturn 0\n}\n"
+    },
+    {
+     "file": "web/broken/broken_test.go",
+     "content": "package broken\n\nimport \"testing\"\n\nfunc TestAlwaysFails(t *testing.T) {\n\tt.Fatal(\"這個套件的測試一定失敗\")\n}\n"
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"exclude\": [\"tools/\", \"vendor/\", \"node_modules/\"]",
+     "new": "\"exclude\": [\"tools/\", \"vendor/\", \"node_modules/\", \"web/\"]"
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"gates\": [\"test\", \"crap\", \"mutation\"]",
+     "new": "\"gates\": [\"crap\", \"mutation\"]"
+    },
+    {
+     "file": "checkout.go",
+     "delete": true
+    },
+    {
+     "file": "checkout_test.go",
+     "delete": true
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"kill_rate_threshold\": 80",
+     "new": "\"kill_rate_threshold\": 0"
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"{go_inspector}\", \"mutants\"]",
+     "new": "\"{go_inspector}\", \"mutants\", \"--coverage-scope\", \"module\"]"
+    }
+   ],
+   "run": [
+    "mutation"
+   ],
+   "exit": 2,
+   "contains": [
+    "gremlins 執行失敗",
+    "檢查員"
+   ]
+  },
+  {
+   "name": "排除清單列出該行沒抓到的改壞版本：改了也沒差，由沒過變成通過",
+   "edits": [
+    {
+     "file": "shipping/fee.go",
+     "old": "if total >= 1000 {",
+     "new": "if total >= 999 {"
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"kill_rate_threshold\": 80",
+     "new": "\"kill_rate_threshold\": 100"
+    },
+    {
+     "file": ".referee-equivalents.json",
+     "content": "[\n  {\n    \"file\": \"shipping/fee.go\",\n    \"function\": \"Fee\",\n    \"line_text\": \"if total >= 999 {\",\n    \"mutator\": \"CONDITIONALS_BOUNDARY\",\n    \"reason\": \"免運門檻 999 與 1000 在測試金額上無法區分，改成 > 後行為相同\",\n    \"approved_by\": \"selftest\"\n  }\n]\n"
+    }
+   ],
+   "run": [
+    "mutation",
+    "--base",
+    "main"
+   ],
+   "exit": 0,
+   "contains": [
+    "已排除：改了也沒差 1",
+    "PASS"
+   ],
+   "not_contains": [
+    "把 `>=` 改成 `>`",
+    "排除清單有"
+   ]
+  },
+  {
+   "name": "排除清單指定 column：同一行兩個邊界改法，只排除第 28 欄沒抓到的那個，第 11 欄的仍算抓到",
+   "edits": [
+    {
+     "file": "shipping/fee.go",
+     "old": "if total >= 1000 {",
+     "new": "if total >= 1000 || total < 0 {"
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"kill_rate_threshold\": 80",
+     "new": "\"kill_rate_threshold\": 70"
+    },
+    {
+     "file": ".referee-equivalents.json",
+     "content": "[\n  {\n    \"file\": \"shipping/fee.go\",\n    \"function\": \"Fee\",\n    \"line_text\": \"if total >= 1000 || total < 0 {\",\n    \"mutator\": \"CONDITIONALS_BOUNDARY\",\n    \"reason\": \"total 不會是負數，< 0 和 <= 0 的差別只在 0，0 元時兩者都收運費\",\n    \"approved_by\": \"selftest\",\n    \"column\": 28\n  }\n]\n"
+    }
+   ],
+   "run": [
+    "mutation",
+    "--base",
+    "main",
+    "--json",
+    "out-mut.json"
+   ],
+   "exit": 0,
+   "contains": [
+    "已排除：改了也沒差 1",
+    "沒抓到  shipping/fee.go:5:28  把 `<` 改成 `>=`",
+    "抓到 3、",
+    "PASS"
+   ],
+   "not_contains": [
+    "把 `<` 改成 `<=`",
+    "排除清單有"
+   ],
+   "json": "out-mut.json",
+   "json_values": {
+    "mutation.counts.EQUIVALENT": 1,
+    "mutation.counts.KILLED": 3,
+    "mutation.counts.LIVED": 1
+   }
+  },
+  {
+   "name": "排除清單不寫 column：同一行同一種改法全部排除，連抓到的第 11 欄也排除，抓錯率剩 66.67%，低於門檻 70",
+   "edits": [
+    {
+     "file": "shipping/fee.go",
+     "old": "if total >= 1000 {",
+     "new": "if total >= 1000 || total < 0 {"
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"kill_rate_threshold\": 80",
+     "new": "\"kill_rate_threshold\": 70"
+    },
+    {
+     "file": ".referee-equivalents.json",
+     "content": "[\n  {\n    \"file\": \"shipping/fee.go\",\n    \"function\": \"Fee\",\n    \"line_text\": \"if total >= 1000 || total < 0 {\",\n    \"mutator\": \"CONDITIONALS_BOUNDARY\",\n    \"reason\": \"total 不會是負數，< 0 和 <= 0 的差別只在 0，0 元時兩者都收運費\",\n    \"approved_by\": \"selftest\"\n  }\n]\n"
+    }
+   ],
+   "run": [
+    "mutation",
+    "--base",
+    "main",
+    "--json",
+    "out-mut.json"
+   ],
+   "exit": 1,
+   "contains": [
+    "已排除：改了也沒差 2",
+    "抓到 2、",
+    "抓錯率：66.67%"
+   ],
+   "json": "out-mut.json",
+   "json_values": {
+    "mutation.counts.EQUIVALENT": 2,
+    "mutation.counts.KILLED": 2,
+    "mutation.counts.LIVED": 1
+   }
+  },
+  {
+   "name": "排除清單的 column 寫錯：對不上，那個改壞版本算沒抓到，沒用到的項目印出欄位",
+   "edits": [
+    {
+     "file": "shipping/fee.go",
+     "old": "if total >= 1000 {",
+     "new": "if total >= 1000 || total < 0 {"
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"kill_rate_threshold\": 80",
+     "new": "\"kill_rate_threshold\": 70"
+    },
+    {
+     "file": ".referee-equivalents.json",
+     "content": "[\n  {\n    \"file\": \"shipping/fee.go\",\n    \"function\": \"Fee\",\n    \"line_text\": \"if total >= 1000 || total < 0 {\",\n    \"mutator\": \"CONDITIONALS_BOUNDARY\",\n    \"reason\": \"total 不會是負數，< 0 和 <= 0 的差別只在 0，0 元時兩者都收運費\",\n    \"approved_by\": \"selftest\",\n    \"column\": 27\n  }\n]\n"
+    }
+   ],
+   "run": [
+    "mutation",
+    "--base",
+    "main",
+    "--json",
+    "out-mut.json"
+   ],
+   "exit": 1,
+   "contains": [
+    "沒抓到  shipping/fee.go:5:28  把 `<` 改成 `<=`",
+    "排除清單有 1 項沒用到",
+    "if total >= 1000 || total < 0 {  欄 27"
+   ],
+   "json": "out-mut.json",
+   "json_values": {
+    "mutation.counts.EQUIVALENT": 0,
+    "mutation.counts.LIVED": 2,
+    "mutation.unused_equivalents.0.column": 27
+   }
+  },
+  {
+   "name": "自訂檢查員：crap.inspector 換成專案裡的腳本，交出寫死的函式表，裁判照樣判定，tools 和 settings 寫進報告",
+   "edits": [
+    {
+     "file": "scripts/fake_crap.py",
+     "content": "import json, os\nsheet = {'schema': 'referee.functions/1', 'tools': {'hand-written': '1'},\n         'settings': {'note': 'hardcoded'},\n         'functions': [{'file': 'shipping/fee.go', 'name': 'Fee', 'start': 4, 'end': 12, 'complexity': 20, 'coverage': 0.0},\n                       {'file': 'checkout.go', 'name': 'Checkout', 'start': 31, 'end': 70, 'complexity': 3, 'coverage': 1.0}]}\nwith open(os.environ['REFEREE_OUT'], 'w', encoding='utf-8') as f:\n    json.dump(sheet, f)\n"
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"inspector\": [\"{python}\", \"{go_inspector}\", \"functions\"]",
+     "new": "\"inspector\": [\"{python}\", \"scripts/fake_crap.py\"]"
+    }
+   ],
+   "run": [
+    "crap",
+    "--json",
+    "out-crap.json"
+   ],
+   "exit": 1,
+   "contains": [
+    "Fee",
+    "檢查員設定：note hardcoded",
+    "FAIL：1 個函式"
+   ],
+   "json": "out-crap.json",
+   "json_values": {
+    "inspector.tools.hand-written": "1",
+    "inspector.settings.note": "hardcoded",
+    "crap.functions.name=Fee.over": true,
+    "result": "fail"
+   }
+  }
+ ]
+}
