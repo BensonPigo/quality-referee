@@ -1,0 +1,12 @@
+# gremlins 設定檔（v0.6.0）
+unleash:
+  # 測試跑得很快時，gremlins 估出的時限太短，在 Windows 上光重新編譯就會超時，所以放寬 30 倍。
+  timeout-coefficient: 30
+  # 品質閘門：效能低於 95% 時結束碼為 10。
+  # 注意：命令列參數 --threshold-efficacy 在 v0.6.0 沒有作用，門檻只能寫在這裡。
+  threshold:
+    efficacy: 95
+mutants:
+  # 預設關閉，打開後會把 && 和 || 互換。
+  invert-logical:
+    enabled: true
