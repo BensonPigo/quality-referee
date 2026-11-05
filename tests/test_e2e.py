@@ -2,13 +2,12 @@
 
 import json
 import os
-import shutil
 import sys
 import unittest
 
 from referee import schema
 from tests.helpers import (FAKE, TempDirMixin, commit_all, dump, fn, functions_sheet, git, init_repo, lines, load, mu,
-                           mutants_sheet, run_referee, write)
+                           mutants_sheet, remove_tree, run_referee, write)
 
 PY = sys.executable
 PASS_CMD = [PY, "-c", "import sys; sys.exit(0)"]
@@ -72,7 +71,7 @@ class E2E(TempDirMixin, unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        shutil.rmtree(cls.root, True)
+        remove_tree(cls.root)
 
     def setUp(self):
         self.out = self.make_tmp()

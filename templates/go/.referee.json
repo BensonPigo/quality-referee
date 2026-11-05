@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "base": "origin/main",
+  "gates": ["test", "crap", "mutation"],
+  "sources": ["**/*.go"],
+  "tests": ["**/*_test.go"],
+  "exclude": ["tools/", "vendor/"],
+  "test": {"command": ["go", "test", "./..."]},
+  "crap": {
+    "threshold": 12,
+    "inspector": ["python", "tools/referee/inspectors/go.py", "functions"]
+  },
+  "mutation": {
+    "kill_rate_threshold": 80,
+    "reach_rate_threshold": 50,
+    "exclude_mutators": [],
+    "equivalents_file": ".referee-equivalents.json",
+    "inspector": ["python", "tools/referee/inspectors/go.py", "mutants", "--workers", "4"]
+  }
+}

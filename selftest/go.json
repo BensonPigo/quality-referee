@@ -823,6 +823,213 @@
     "crap.functions.name=Fee.over": true,
     "result": "fail"
    }
+  },
+  {
+   "name": "gate.sh：沒改東西（base 的內容已 commit），放行（結束碼 0）",
+   "mount": "go",
+   "commit_edits": [
+    {
+     "file": ".referee.json",
+     "old": "\"base\": \"origin/main\"",
+     "new": "\"base\": \"main\""
+    }
+   ],
+   "steps": [
+    {
+     "shell": [
+      "{bash}",
+      "{gate_sh}"
+     ],
+     "exit": 0
+    }
+   ]
+  },
+  {
+   "name": "gate.sh：沒改東西時不檢查工具在不在（刪掉 tools/referee/referee.py 並 commit，放行）",
+   "mount": "go",
+   "commit_edits": [
+    {
+     "file": ".referee.json",
+     "old": "\"base\": \"origin/main\"",
+     "new": "\"base\": \"main\""
+    }
+   ],
+   "steps": [
+    {
+     "shell": [
+      "{bash}",
+      "-c",
+      "rm -f tools/referee/referee.py && git add -A && git commit -qm drop-tool"
+     ],
+     "exit": 0
+    },
+    {
+     "shell": [
+      "{bash}",
+      "{gate_sh}"
+     ],
+     "exit": 0
+    }
+   ]
+  },
+  {
+   "name": "gate.sh：改到舊函式 Weight，CRAP 沒過，結束碼 2，訊息有「第二關沒過」和覆蓋率要到 35%",
+   "mount": "go",
+   "commit_edits": [
+    {
+     "file": ".referee.json",
+     "old": "\"base\": \"origin/main\"",
+     "new": "\"base\": \"main\""
+    }
+   ],
+   "edits": [
+    {
+     "file": "shipping/fee.go",
+     "old": "return 50",
+     "new": "return 55"
+    }
+   ],
+   "steps": [
+    {
+     "shell": [
+      "{bash}",
+      "{gate_sh}"
+     ],
+     "exit": 2,
+     "contains": [
+      "第二關沒過",
+      "覆蓋率要到 35%"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "gate.sh：測試失敗，結束碼 2，訊息有「第一關沒過」",
+   "mount": "go",
+   "commit_edits": [
+    {
+     "file": ".referee.json",
+     "old": "\"base\": \"origin/main\"",
+     "new": "\"base\": \"main\""
+    }
+   ],
+   "edits": [
+    {
+     "file": "shipping/fee_test.go",
+     "old": "got != 0 {",
+     "new": "got != 5 {"
+    }
+   ],
+   "steps": [
+    {
+     "shell": [
+      "{bash}",
+      "{gate_sh}"
+     ],
+     "exit": 2,
+     "contains": [
+      "第一關沒過"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "gate.sh：沒有 tools/referee/referee.py 又有改檔案，結束碼 2，提示 git submodule update --init",
+   "mount": "go",
+   "commit_edits": [
+    {
+     "file": ".referee.json",
+     "old": "\"base\": \"origin/main\"",
+     "new": "\"base\": \"main\""
+    }
+   ],
+   "edits": [
+    {
+     "file": "shipping/fee.go",
+     "old": "return 50",
+     "new": "return 55"
+    }
+   ],
+   "steps": [
+    {
+     "shell": [
+      "{bash}",
+      "-c",
+      "rm -f tools/referee/referee.py"
+     ],
+     "exit": 0
+    },
+    {
+     "shell": [
+      "{bash}",
+      "{gate_sh}"
+     ],
+     "exit": 2,
+     "contains": [
+      "git submodule update --init"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "gate.sh：base 是不存在的分支，找不到就放行",
+   "mount": "go",
+   "commit_edits": [
+    {
+     "file": ".referee.json",
+     "old": "\"base\": \"origin/main\"",
+     "new": "\"base\": \"origin/nope\""
+    }
+   ],
+   "edits": [
+    {
+     "file": "shipping/fee.go",
+     "old": "return 50",
+     "new": "return 55"
+    }
+   ],
+   "steps": [
+    {
+     "shell": [
+      "{bash}",
+      "{gate_sh}"
+     ],
+     "exit": 0
+    }
+   ]
+  },
+  {
+   "name": "gate.sh：base 是不存在的分支，用 REFEREE_BASE=main 覆蓋，改成檢查，結束碼 2",
+   "mount": "go",
+   "commit_edits": [
+    {
+     "file": ".referee.json",
+     "old": "\"base\": \"origin/main\"",
+     "new": "\"base\": \"origin/nope\""
+    }
+   ],
+   "edits": [
+    {
+     "file": "shipping/fee.go",
+     "old": "return 50",
+     "new": "return 55"
+    }
+   ],
+   "steps": [
+    {
+     "shell": [
+      "{bash}",
+      "{gate_sh}"
+     ],
+     "exit": 2,
+     "contains": [
+      "覆蓋率要到 35%"
+     ],
+     "env": {
+      "REFEREE_BASE": "main"
+     }
+    }
+   ]
   }
  ]
 }

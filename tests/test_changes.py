@@ -1,17 +1,16 @@
 import math
 import os
-import shutil
 import unittest
 
 from referee.changes import changed_lines, overlaps
 from referee.errors import RefereeError
-from tests.helpers import commit_all, git, init_repo, lines, write
+from tests.helpers import commit_all, git, init_repo, lines, remove_tree, write
 
 
 class ChangedLines(unittest.TestCase):
     def repo(self, files):
         root = init_repo(files)
-        self.addCleanup(shutil.rmtree, root, True)
+        self.addCleanup(remove_tree, root)
         return root
 
     def test_uncommitted_edit(self):

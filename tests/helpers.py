@@ -3,6 +3,7 @@
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -31,8 +32,16 @@ def lines(n, prefix="line"):
     return "".join("{} {}\n".format(prefix, i) for i in range(1, n + 1))
 
 
+def remove_tree(path):
+    """刪暫存目錄。Windows 上 .git 底下的檔案是唯讀的，要先改成可寫才刪得掉。"""
+    def force(func, p, _):
+        os.chmod(p, stat.S_IWRITE)
+        func(p)
+    shutil.rmtree(path, onerror=force)
+
+
 def init_repo(files):
-    """建一個 main 分支、有一個 commit 的暫存 repo，回傳路徑。呼叫端負責 rmtree。"""
+    """建一個 main 分支、有一個 commit 的暫存 repo，回傳路徑。呼叫端要用 remove_tree 清掉（git 的物件檔是唯讀的，Windows 上一般的 rmtree 刪不掉）。"""
     root = os.path.realpath(tempfile.mkdtemp(prefix="referee-test-"))
     git(root, "init", "-q", "-b", "main")
     for path, content in files.items():
@@ -92,5 +101,5 @@ def load(path):
 class TempDirMixin:
     def make_tmp(self):
         d = os.path.realpath(tempfile.mkdtemp(prefix="referee-tmp-"))
-        self.addCleanup(shutil.rmtree, d, True)
+        self.addCleanup(remove_tree, d)
         return d

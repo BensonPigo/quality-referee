@@ -18,6 +18,13 @@ run 是 referee.py 的參數；shell 是直接執行的指令（不經過殼層�
 json 是該步 --json 寫出的檔名（可以是串列），讀檔後用 referee.schema.validate 驗證格式；
 json_values 是 {"欄位.路徑": 預期值}，路徑用 . 分隔，陣列裡數字是索引，欄位=值 是找第一個符合的元素。
 設定檔和 edits 的字串裡 {python}、{go_inspector} 換成直譯器和 Go 檢查員的路徑。
+
+情境可以加 "mount": "go"：還原之後、commit_edits 之前，像 submodule 一樣把這個 repo 的 git ls-files 複製到範例的
+tools/referee/，再照 README 的步驟把 templates/<mount>/ 的 .referee.json、.referee-equivalents.json、
+.claude/settings.json、.claude/hooks/gate.sh、workflows/ 複製進去，commit 到 main。
+shell 步驟的環境變數有 CLAUDE_PROJECT_DIR=<範例專案>（REFEREE_BASE 會先清掉，免得外面的設定干擾），
+git 身分固定是 selftest <selftest@example.com>；指令的每個元素裡，{gate_sh} 換成範例裡 .claude/hooks/gate.sh 的路徑，
+{bash} 換成 bash：Windows 用 Git for Windows 的 bash.exe（不用 System32 底下 WSL 的 bash），找不到該步就失敗。
 範例專案需要的語言工具（Go）要先裝好。
 """
 
@@ -130,6 +137,10 @@ def run_sample(name, args):
                 continue
             run(["git", "reset", "-q", "--hard", init_commit], proj, check=True)
             run(["git", "clean", "-fdq"], proj, check=True)
+            if sc.get("mount"):
+                mount_referee(proj, sc["mount"])
+                run(["git"] + GIT_ID + ["add", "-A"], proj, check=True)
+                run(["git"] + GIT_ID + ["commit", "-q", "-m", "mount"], proj, check=True)
             problem = apply_edits(proj, sc.get("commit_edits", []))
             if problem is None and sc.get("commit_edits"):
                 run(["git"] + GIT_ID + ["add", "-A"], proj, check=True)
@@ -150,6 +161,22 @@ def run_sample(name, args):
         else:
             shutil.rmtree(tmp, onerror=_force_remove)
     return failed
+
+
+def mount_referee(proj, template):
+    """像 submodule 一樣把這個 repo 的 git ls-files 放到 proj/tools/referee/，再照 README 複製 templates/<template>/。"""
+    r = subprocess.run(["git", "ls-files", "-z"], cwd=HERE, stdout=subprocess.PIPE, check=True)
+    for rel in filter(None, r.stdout.decode("utf-8").split("\0")):
+        copy_file(os.path.join(HERE, rel), os.path.join(proj, "tools", "referee", rel))
+    tpl = os.path.join(HERE, "templates", template)
+    for rel in (".referee.json", ".referee-equivalents.json", ".claude/settings.json", ".claude/hooks/gate.sh"):
+        copy_file(os.path.join(tpl, rel), os.path.join(proj, rel))
+    copy_file(os.path.join(tpl, "workflows", template + ".yml"), os.path.join(proj, ".github", "workflows", "referee.yml"))
+
+
+def copy_file(src, dest):
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    shutil.copy(src, dest)
 
 
 def apply_edits(proj, edits):
@@ -287,10 +314,45 @@ def report(title, r, ok, detail):
     return [title]
 
 
+def find_bash():
+    """找 bash 的路徑，找不到回傳 None。
+
+    Windows 上 PATH 裡的 bash 可能是 System32 底下的 WSL 啟動器，跑起來是另一個 Linux 環境，
+    gate.sh 在那裡找不到 Git Bash 的工具。所以先從 git 的安裝目錄找（git --exec-path 在
+    <安裝目錄>/mingw64/libexec/git-core，往上三層是安裝目錄，bash.exe 在 bin/ 底下），
+    找不到才用 PATH 裡的 bash，而且要略過 System32 和 WindowsApps。
+    """
+    if os.name != "nt":
+        return shutil.which("bash")
+    candidates = []
+    r = run(["git", "--exec-path"], HERE)
+    if r.returncode == 0:
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.normpath(r.stdout.strip()))))
+        candidates += [os.path.join(root, "bin", "bash.exe"), os.path.join(root, "usr", "bin", "bash.exe")]
+    candidates.append(shutil.which("bash"))
+    for c in candidates:
+        if c and os.path.isfile(c) and not any(
+                bad in c.replace("/", "\\").lower() for bad in ("\\windows\\system32\\", "\\windowsapps\\")):
+            return c
+    return None
+
+
 def run_shell(proj, cmd, extra_env):
-    env = dict(os.environ, PYTHONUTF8="1", PYTHONDONTWRITEBYTECODE="1")
+    """執行 shell 步驟：換掉 {gate_sh}、{bash}，cwd 是範例專案，stdin 給 {}。"""
+    bash = None
+    if any("{bash}" in c for c in cmd):
+        bash = find_bash()
+        if not bash:
+            return subprocess.CompletedProcess(cmd, 2, "", "找不到 Git Bash 的 bash（Windows 上不能用 System32 底下 WSL 的 bash），"
+                                                          "請安裝 Git for Windows")
+    gate_sh = os.path.join(proj, ".claude", "hooks", "gate.sh").replace("\\", "/")
+    cmd = [c.replace("{bash}", bash or "").replace("{gate_sh}", gate_sh) for c in cmd]
+    env = dict(os.environ, PYTHONUTF8="1", PYTHONDONTWRITEBYTECODE="1", CLAUDE_PROJECT_DIR=proj.replace("\\", "/"),
+               GIT_AUTHOR_NAME="selftest", GIT_AUTHOR_EMAIL="selftest@example.com",
+               GIT_COMMITTER_NAME="selftest", GIT_COMMITTER_EMAIL="selftest@example.com")
+    env.pop("REFEREE_BASE", None)
     env.update(extra_env)
-    r = subprocess.run(cmd, cwd=proj, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    r = subprocess.run(cmd, cwd=proj, env=env, input="{}", stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                        encoding="utf-8", errors="replace")
     r.stdout = r.stdout.replace("\r\n", "\n")
     r.stderr = r.stderr.replace("\r\n", "\n")

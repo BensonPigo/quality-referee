@@ -1,12 +1,11 @@
 """Go 標準檢查員的純函式測試（不執行 gremlins、gocyclo），加上套件清單的排除。"""
 
 import os
-import shutil
 import tempfile
 import unittest
 
 from inspectors import go
-from tests.helpers import write
+from tests.helpers import remove_tree, write
 
 
 class GremlinsEnv(unittest.TestCase):
@@ -109,7 +108,7 @@ class UnchangedFiles(unittest.TestCase):
 class Packages(unittest.TestCase):
     def test_exclude_drops_packages_but_keeps_root_and_siblings(self):
         root = os.path.realpath(tempfile.mkdtemp(prefix="referee-go-"))
-        self.addCleanup(shutil.rmtree, root, True)
+        self.addCleanup(remove_tree, root)
         write(root, "go.mod", "module shop\n\ngo 1.21\n")
         write(root, "main.go", "package shop\n")
         write(root, "web/broken/b.go", "package broken\n")

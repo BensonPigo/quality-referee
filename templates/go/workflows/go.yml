@@ -1,0 +1,35 @@
+# 三道檢查（Go）：每個要合併進 main 的 PR 都會自動執行。
+# 放到目標 repo 的 .github/workflows/referee.yml；用 Gitea 的話放 .gitea/workflows/referee.yml。
+# 三個指令都讀 .referee.json 的 gates：沒啟用的關印「還沒啟用」並以 0 結束，所以一次上一關時，這份 workflow 不用改。
+name: 三道檢查
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  referee:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 要比對 git 歷史才知道改了哪些地方，不能只抓最新一版
+          submodules: true # 一起抓 tools/referee 指向的工具版本
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # 範本的檢查員指令寫 python，runner 上要有
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 第一關：單元測試
+        run: python3 tools/referee/referee.py test
+
+      - name: 第二關：CRAP
+        run: python3 tools/referee/referee.py crap --base origin/${{ github.base_ref }}
+
+      - name: 第三關：抓錯檢查
+        run: python3 tools/referee/referee.py mutation --base origin/${{ github.base_ref }}

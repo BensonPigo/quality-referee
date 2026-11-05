@@ -1,0 +1,27 @@
+# quality-referee 自己的 CI：單元測試和 Go 範例專案的全部情境。
+name: selftest
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  selftest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 單元測試
+        run: python -m unittest
+
+      - name: 範例專案的全部情境
+        run: python selftest.py
