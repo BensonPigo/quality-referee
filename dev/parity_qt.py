@@ -7,7 +7,7 @@
   （測試卡住的時限差一點點，結果就從抓到變逾時），所以合計比對。
 
     python dev/parity_qt.py sample [--scope package module]     # 範例專案，預設兩種範圍各比一次
-    python dev/parity_qt.py bethere [--source 路徑] [--only crap|mutation] [--workers N]
+    python dev/parity_qt.py bethere [--source 路徑] [--only crap|mutation]
 
 bethere：先 git clone 到暫存目錄，不動原 repo。兩個工具都用原 repo 的 .quality.json 設定（coverage_scope、exclude、
 門檻）。抓錯計數只比 internal/rundown 這一個套件，做法是兩個工具的 exclude 都另外加入其他所有套件。
@@ -100,11 +100,23 @@ def write_configs(proj, exclude, coverage_scope):
 # ---------- 量測和解析 ----------
 
 def parse_crap_rows(text):
+    """表格是從表頭（CRAP 開頭的那行）到第一個空行。每一列都要解析得出來，列數不符就失敗，不默默略過。"""
+    lines = text.splitlines()
+    start = next((i for i, line in enumerate(lines) if line.startswith("CRAP ")), None)
+    if start is None:
+        return []
+    table = []
+    for line in lines[start + 1:]:
+        if not line.strip():
+            break
+        table.append(line)
     rows = []
-    for line in text.splitlines():
+    for line in table:
         m = CRAP_ROW.match(line.strip())
         if m:
             rows.append(m.groups())
+    if len(rows) != len(table):
+        raise ParityError("CRAP 表有 {} 列，只解析出 {} 列：\n{}".format(len(table), len(rows), "\n".join(table)))
     return rows
 
 
