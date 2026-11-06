@@ -68,7 +68,7 @@ python tools/referee/referee.py check --base origin/main --skip mutation --json 
 | 指令 | 做什麼 |
 |---|---|
 | `test [--json 檔]` | 第一關，執行 `test.command` |
-| `crap [--base B] [--json 檔]` | 第二關。有 `--base` 只檢查改到的函式，沒給就檢查整個專案 |
+| `crap [--base B] [--json 檔]` | 第二關。有 `--base` 只檢查改到的函式，沒給就檢查整個專案。超標的函式後面附改善方向：「要拆函式」或「覆蓋率要到 X%」 |
 | `mutation [--base B] [--json 檔]` | 第三關。有 `--base` 只算改到的行 |
 | `check [--base B] [--skip 關...] [--json 目錄]` | 依 `gates` 的順序跑，第一個沒過就停，印出「停在第 N 關」。`--json` 每一關寫一份：`test.json`、`crap.json`、`mutation.json` |
 
@@ -139,10 +139,10 @@ python tools/referee/inspectors/go.py functions|mutants [--coverage-scope packag
 ```
 
 - `--coverage-scope package|module`（預設 package）：module 時，別的套件的測試跑到的程式也算覆蓋率；抓錯檢查改用 gremlins 的 `--integration --coverpkg`，每個改壞的版本跑整個模組的測試。
-- `--workers N`：gremlins 同時跑幾個，沒給就用 gremlins 的預設值。
+- `--workers N`：gremlins 同時跑幾個，沒給就用 gremlins 的預設值。只對 `mutants` 有用，`functions` 不跑 gremlins。
 - gocyclo、gremlins（都是 v0.6.0）第一次執行時用 `go install` 裝到 `REFEREE_TOOLS_DIR`（預設 `~/.cache/quality-referee`），之後直接執行，斷網也能量。
 - 要跳過的目錄寫在 `.referee.json` 的 `exclude`，檢查員從 context 讀，不用在 `inspector` 指令再寫一次。
-- 記分表的 `tools` 寫兩個工具的版本，`settings` 寫實際生效的 `coverage_scope` 和 `workers`，會進 JSON 報告。
+- 記分表的 `tools` 寫兩個工具的版本，`settings` 寫實際生效的設定（`functions` 只有 `coverage_scope`，`mutants` 有 `coverage_scope` 和 `workers`），會進 JSON 報告。
 
 範本的 `crap.inspector` 沒有帶 `--coverage-scope`，用 package 範圍。專案的測試分散在別的套件時，兩個 inspector 都加 `"--coverage-scope", "module"`。
 

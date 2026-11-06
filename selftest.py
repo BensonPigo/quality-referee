@@ -130,6 +130,8 @@ def run_sample(name, args):
             with open(snapshot, encoding="utf-8") as fp:
                 expected = fp.read()
             failed += report("crap 整個專案，表格要跟快照一致", r, table == expected, "預期：\n" + expected)
+        failed += report("crap 整個專案，檢查員設定只有 coverage_scope（量 CRAP 不用 workers）", r,
+                         "檢查員設定：coverage_scope package\n" in r.stdout, "預期有：檢查員設定：coverage_scope package")
 
         init_commit = run(["git", "rev-parse", "HEAD"], proj, check=True).stdout.strip()
         for sc in case["scenarios"]:

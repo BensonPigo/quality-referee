@@ -5,7 +5,7 @@ import os
 import sys
 import unittest
 
-from referee import schema
+from referee import __version__, schema
 from tests.helpers import (FAKE, TempDirMixin, commit_all, dump, fn, functions_sheet, git, init_repo, lines, load, mu,
                            mutants_sheet, remove_tree, run_referee, write)
 
@@ -24,7 +24,7 @@ def fee_go(changed):
 
 
 CRAP_TOOLS = {"gocyclo": "v0.6.0"}
-CRAP_SETTINGS = {"coverage_scope": "module", "workers": 4}
+CRAP_SETTINGS = {"coverage_scope": "module"}
 
 # 不加 --base：vendor、測試檔、sources 以外的檔案都要被裁判丟掉
 CRAP_NOBASE = functions_sheet([
@@ -192,6 +192,13 @@ class E2E(TempDirMixin, unittest.TestCase):
         self.assertIsNone(rep["base"])
         self.assertEqual(rep["result"], "fail")
 
+    def test_crap_without_base_also_prints_advice(self):
+        sheet = functions_sheet([fn("shipping/fee.go", "Fee", 3, 9, 4, 0.0), fn("other/old.go", "Legacy", 1, 10, 13, 1.0)])
+        code, out, err = self.run_cli(["crap"], crap=sheet)
+        self.assertEqual(code, 1, out + err)
+        self.assertIn("覆蓋率要到 21%", out)
+        self.assertIn("要拆函式", out)
+
     def test_crap_base_advice_cover_and_split(self):
         sheet = functions_sheet([fn("shipping/fee.go", "Fee", 3, 9, 4, 0.0), fn("main.go", "Main", 1, 5, 13, 1.0)])
         code, out, err = self.run_cli(["crap", "--base", "main", "--json", self.json_path()], crap=sheet)
@@ -232,7 +239,7 @@ class E2E(TempDirMixin, unittest.TestCase):
         self.assertEqual(rep["inspector"], {"command": [PY, FAKE, "mutation"], "tools": {"gremlins": "v0.6.0"},
                                             "settings": {"workers": 4}})
         self.assertEqual((rep["schema"], rep["referee_version"], rep["command"], rep["result"]),
-                         ("referee.report/1", "0.1.0", "mutation", "pass"))
+                         ("referee.report/1", __version__, "mutation", "pass"))
         self.assertIsNone(rep["crap"])
         pk = rep["mutation"]["packages"]
         self.assertEqual(sorted(pk), [".", "other", "shipping"])
@@ -255,7 +262,7 @@ class E2E(TempDirMixin, unittest.TestCase):
                                             "settings": CRAP_SETTINGS})
         self.assertIsNone(rep["mutation"])
         self.assertEqual(rep["crap"]["threshold"], 12)
-        self.assertIn("檢查員設定：coverage_scope module、workers 4", out)
+        self.assertIn("檢查員設定：coverage_scope module\n", out)
 
     def test_no_settings_prints_none_and_report_null(self):
         sheet = functions_sheet([fn("main.go", "Main", 1, 5, 2, 1.0)])

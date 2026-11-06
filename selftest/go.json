@@ -111,7 +111,7 @@
    "exit": 0,
    "contains": [
     "PASS",
-    "檢查員設定：coverage_scope module、workers null"
+    "檢查員設定：coverage_scope module\n"
    ],
    "json": "out-crap.json",
    "json_values": {
