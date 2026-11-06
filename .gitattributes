@@ -1,0 +1,2 @@
+# 裝到專案時用 cp 複製；Windows 上 core.autocrlf=true 會把 .sh 取出成 CRLF，bash 會執行失敗
+*.sh text eol=lf

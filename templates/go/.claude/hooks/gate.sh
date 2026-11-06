@@ -22,7 +22,7 @@ git merge-base "$base" HEAD >/dev/null 2>&1 || exit 0
 
 # 這次沒有改到任何檔案，例如只是回答問題，就不用檢查。
 # git 的警告（例如 Windows 上的「LF will be replaced by CRLF」）丟掉，不然會混進交給 AI 的訊息
-if git diff --quiet "$(git merge-base "$base" HEAD)" 2>/dev/null &&[ -z "$(git ls-files --others --exclude-standard)" ]; then
+if git diff --quiet "$(git merge-base "$base" HEAD)" 2>/dev/null && [ -z "$(git ls-files --others --exclude-standard)" ]; then
 	exit 0
 fi
 
