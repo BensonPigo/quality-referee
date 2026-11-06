@@ -92,9 +92,10 @@ def source_files(root, ctx, skip_dirs=()):
 def find_target(root, given=None):
     """要測試的方案或專案檔（相對路徑）。沒指定時找專案根目錄唯一的 .sln 或 .slnx。"""
     if given:
+        given = paths.normalize(given)  # 先統一成 /：Linux 上 \ 不是路徑分隔字元
         if not os.path.isfile(os.path.join(root, given)):
             raise InspectorError("找不到 --target 指定的 {}".format(given))
-        return paths.normalize(given)
+        return given
     found = sorted(n for n in os.listdir(root) if n.endswith((".sln", ".slnx")) and os.path.isfile(os.path.join(root, n)))
     if not found:
         raise InspectorError("專案根目錄沒有 .sln 或 .slnx，請在檢查員指令加 --target <方案或專案檔>")
