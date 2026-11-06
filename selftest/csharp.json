@@ -149,6 +149,369 @@
    "contains": [
     "請在檢查員指令加 --target"
    ]
+  },
+  {
+   "name": "沒改東西：抓錯檢查通過",
+   "run": [
+    "mutation",
+    "--base",
+    "main"
+   ],
+   "exit": 0,
+   "contains": [
+    "PASS：這次沒有改到正式程式碼"
+   ]
+  },
+  {
+   "name": "改到 Total 的優惠券條件，測試全部抓到：通過，json 報告帶 tools 和 settings",
+   "edits": [
+    {
+     "file": "Shop/Pricing.cs",
+     "old": "if (coupon == \"SAVE100\" && total >= 1000)",
+     "new": "if (total >= 1000 && coupon == \"SAVE100\")"
+    }
+   ],
+   "run": [
+    "mutation",
+    "--base",
+    "main",
+    "--json",
+    "out-mutation.json"
+   ],
+   "exit": 0,
+   "contains": [
+    "抓錯率：100.00%",
+    "檢查員設定：target Sample.slnx、workers null",
+    "PASS"
+   ],
+   "not_contains": [
+    "沒抓到  Shop/Cart.cs",
+    "Shop/Pricing.cs:13"
+   ],
+   "json": "out-mutation.json",
+   "json_values": {
+    "inspector.tools.dotnet-stryker": "5.0.0",
+    "inspector.settings.target": "Sample.slnx",
+    "mutation.counts.LIVED": 0
+   }
+  },
+  {
+   "name": "改到 Total 的小計條件：<= 改成 < 沒被抓到，抓錯率 66.67% 沒過",
+   "edits": [
+    {
+     "file": "Shop/Pricing.cs",
+     "old": "if (subtotal <= 0)",
+     "new": "if (subtotal <= 0m)"
+    }
+   ],
+   "run": [
+    "mutation",
+    "--base",
+    "main"
+   ],
+   "exit": 1,
+   "contains": [
+    "沒抓到  Shop/Pricing.cs:13:13  把 `subtotal <= 0m` 改成 `subtotal < 0m`",
+    "抓錯率：66.67%"
+   ]
+  },
+  {
+   "name": "排除清單列出那一行的 Equality mutation：同一欄的兩個改法一起排除，由沒過變成通過",
+   "edits": [
+    {
+     "file": "Shop/Pricing.cs",
+     "old": "if (subtotal <= 0)",
+     "new": "if (subtotal <= 0m)"
+    },
+    {
+     "file": ".referee-equivalents.json",
+     "content": "[{\"file\": \"Shop/Pricing.cs\", \"mutator\": \"Equality mutation\", \"line_text\": \"if (subtotal <= 0m)\", \"reason\": \"小計是 0 時，打折、優惠券都不會讓金額變成負的，<= 和 < 結果一樣\", \"approved_by\": \"selftest\"}]"
+    }
+   ],
+   "run": [
+    "mutation",
+    "--base",
+    "main",
+    "--json",
+    "out-mutation.json"
+   ],
+   "exit": 0,
+   "contains": [
+    "抓錯率：100.00%",
+    "PASS"
+   ],
+   "json": "out-mutation.json",
+   "json_values": {
+    "mutation.counts.EQUIVALENT": 2,
+    "mutation.counts.KILLED": 1
+   }
+  },
+  {
+   "name": "改到沒有測試的 Tier：改壞的版本都是測試沒跑到，測到率門檻 50 時沒過",
+   "edits": [
+    {
+     "file": "Shop/Pricing.cs",
+     "old": ">= 500 => \"silver\",",
+     "new": ">= 600 => \"silver\","
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"reach_rate_threshold\": 0",
+     "new": "\"reach_rate_threshold\": 50"
+    }
+   ],
+   "run": [
+    "mutation",
+    "--base",
+    "main"
+   ],
+   "exit": 1,
+   "contains": [
+    "測試沒跑到  Shop/Pricing.cs:29:9",
+    "測到率：0.00%（門檻 50%）"
+   ]
+  },
+  {
+   "name": "只改到沒被測試專案引用的 Legacy：Stryker 不改壞它，抓錯檢查沒有東西可判定（第二關的覆蓋率 0 會擋）",
+   "edits": [
+    {
+     "file": "Legacy/Rounding.cs",
+     "old": "return Math.Round(value ?? 0, 2);",
+     "new": "return Math.Round(value ?? 0m, 2);"
+    }
+   ],
+   "run": [
+    "mutation",
+    "--base",
+    "main"
+   ],
+   "exit": 0,
+   "contains": [
+    "抓到 0、逾時 0（算抓到）、沒抓到 0、測試沒跑到 0"
+   ]
+  },
+  {
+   "name": "--workers 和 --target 測試專案：寫進 settings，量測結果一樣",
+   "edits": [
+    {
+     "file": "Shop/Pricing.cs",
+     "old": "if (coupon == \"SAVE100\" && total >= 1000)",
+     "new": "if (total >= 1000 && coupon == \"SAVE100\")"
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"{csharp_inspector}\", \"mutants\"]",
+     "new": "\"{csharp_inspector}\", \"mutants\", \"--target\", \"Shop.Tests/Shop.Tests.csproj\", \"--workers\", \"2\"]"
+    }
+   ],
+   "run": [
+    "mutation",
+    "--base",
+    "main"
+   ],
+   "exit": 0,
+   "contains": [
+    "抓錯率：100.00%",
+    "檢查員設定：target Shop.Tests/Shop.Tests.csproj、workers 2"
+   ]
+  },
+  {
+   "name": "測試失敗：抓錯檢查結束碼 2",
+   "edits": [
+    {
+     "file": "Shop/Pricing.cs",
+     "old": "if (coupon == \"SAVE100\" && total >= 1000)",
+     "new": "if (total >= 1000 && coupon == \"SAVE100\")"
+    },
+    {
+     "file": "Shop.Tests/PricingTests.cs",
+     "old": "[InlineData(500, false, \"\", 500)]",
+     "new": "[InlineData(500, false, \"\", 501)]"
+    }
+   ],
+   "run": [
+    "mutation",
+    "--base",
+    "main"
+   ],
+   "exit": 2,
+   "contains": [
+    "Stryker.NET 執行失敗"
+   ]
+  },
+  {
+   "name": "照 README 掛上（submodule 和範本）：crap 從 tools/referee 執行檢查員，量完 tools/referee 底下沒有多出任何檔案（含 .gitignore 藏起來的 bin/、obj/）",
+   "mount": "csharp",
+   "commit_edits": [
+    {
+     "file": ".referee.json",
+     "old": "\"base\": \"origin/main\"",
+     "new": "\"base\": \"main\""
+    }
+   ],
+   "steps": [
+    {
+     "run": [
+      "crap",
+      "--json",
+      "out-crap.json"
+     ],
+     "exit": 1,
+     "contains": [
+      "Pricing.Tier",
+      "覆蓋率要到 21%",
+      "檢查員設定：target Sample.slnx"
+     ],
+     "json": "out-crap.json",
+     "json_values": {
+      "inspector.command.1": "tools/referee/inspectors/csharp.py"
+     }
+    },
+    {
+     "shell": [
+      "git",
+      "status",
+      "--porcelain",
+      "--ignored",
+      "--",
+      "tools/referee"
+     ],
+     "exit": 0,
+     "equals": ""
+    }
+   ]
+  },
+  {
+   "name": "照 README 掛上：抓錯檢查從 tools/referee 執行，改到優惠券條件全部抓到，量完 tools/referee 底下沒有多出任何檔案",
+   "mount": "csharp",
+   "commit_edits": [
+    {
+     "file": ".referee.json",
+     "old": "\"base\": \"origin/main\"",
+     "new": "\"base\": \"main\""
+    }
+   ],
+   "edits": [
+    {
+     "file": "Shop/Pricing.cs",
+     "old": "if (coupon == \"SAVE100\" && total >= 1000)",
+     "new": "if (total >= 1000 && coupon == \"SAVE100\")"
+    }
+   ],
+   "steps": [
+    {
+     "run": [
+      "mutation",
+      "--base",
+      "main",
+      "--json",
+      "out-mutation.json"
+     ],
+     "exit": 0,
+     "contains": [
+      "抓錯率：100.00%",
+      "PASS"
+     ],
+     "json": "out-mutation.json",
+     "json_values": {
+      "inspector.command.1": "tools/referee/inspectors/csharp.py",
+      "inspector.tools.dotnet-stryker": "5.0.0"
+     }
+    },
+    {
+     "shell": [
+      "git",
+      "status",
+      "--porcelain",
+      "--ignored",
+      "--",
+      "tools/referee"
+     ],
+     "exit": 0,
+     "equals": ""
+    }
+   ]
+  },
+  {
+   "name": "gate.sh（C# 範本）：沒改東西，放行（結束碼 0）",
+   "mount": "csharp",
+   "commit_edits": [
+    {
+     "file": ".referee.json",
+     "old": "\"base\": \"origin/main\"",
+     "new": "\"base\": \"main\""
+    }
+   ],
+   "steps": [
+    {
+     "shell": [
+      "{bash}",
+      "{gate_sh}"
+     ],
+     "exit": 0
+    }
+   ]
+  },
+  {
+   "name": "gate.sh（C# 範本）：改到沒有測試的 Tier，結束碼 2，訊息有「第二關沒過」和覆蓋率要到 21%",
+   "mount": "csharp",
+   "commit_edits": [
+    {
+     "file": ".referee.json",
+     "old": "\"base\": \"origin/main\"",
+     "new": "\"base\": \"main\""
+    }
+   ],
+   "edits": [
+    {
+     "file": "Shop/Pricing.cs",
+     "old": ">= 500 => \"silver\",",
+     "new": ">= 600 => \"silver\","
+    }
+   ],
+   "steps": [
+    {
+     "shell": [
+      "{bash}",
+      "{gate_sh}"
+     ],
+     "exit": 2,
+     "contains": [
+      "第二關沒過",
+      "覆蓋率要到 21%"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "gate.sh（C# 範本）：測試失敗，結束碼 2，訊息有「第一關沒過」",
+   "mount": "csharp",
+   "commit_edits": [
+    {
+     "file": ".referee.json",
+     "old": "\"base\": \"origin/main\"",
+     "new": "\"base\": \"main\""
+    }
+   ],
+   "edits": [
+    {
+     "file": "Shop.Tests/PricingTests.cs",
+     "old": "[InlineData(500, false, \"\", 500)]",
+     "new": "[InlineData(500, false, \"\", 501)]"
+    }
+   ],
+   "steps": [
+    {
+     "shell": [
+      "{bash}",
+      "{gate_sh}"
+     ],
+     "exit": 2,
+     "contains": [
+      "第一關沒過"
+     ]
+    }
+   ]
   }
  ]
 }

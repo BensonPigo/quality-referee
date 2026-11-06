@@ -3,12 +3,16 @@
 用法（工作目錄是專案根目錄，由裁判設定 REFEREE_CONTEXT、REFEREE_OUT）：
 
     python inspectors/csharp.py functions [--target 方案或專案檔]
+    python inspectors/csharp.py mutants   [--target 方案或專案檔] [--workers N]
 
 functions：內附的 Roslyn 工具依原始碼算複雜度，dotnet test 加 coverlet 算覆蓋率，交出函式表。
+mutants：Stryker.NET 把程式改壞再跑測試，交出改壞版本表。有改到的檔案清單時只改壞那些檔案。
 --target 是要測試的 .sln、.slnx 或 .csproj（相對於專案根目錄）；沒給時用專案根目錄唯一的 .sln 或 .slnx。
+mutants 的 --target 是 .csproj 時，要是測試專案。--workers 是 Stryker 同時跑幾個（--concurrency）。
 
 需求：PATH 上有 .NET SDK 6 以上；測試專案引用 coverlet.collector（dotnet new xunit、mstest、nunit 的範本預設就有）。
-複雜度工具第一次執行時從原始碼建置到快取目錄（REFEREE_TOOLS_DIR，預設 ~/.cache/quality-referee），要網路；之後直接執行。
+複雜度工具第一次執行時從原始碼建置、Stryker.NET 第一次執行時用 dotnet tool install 裝到快取目錄
+（REFEREE_TOOLS_DIR，預設 ~/.cache/quality-referee），要網路；之後直接執行。
 結束碼 0 是量完了，其他值是量測失敗。
 """
 
@@ -31,6 +35,21 @@ from referee.errors import RefereeError  # noqa: E402
 COMPLEXITY_SRC = os.path.join(HERE, "csharp", "complexity")
 COMPLEXITY_DLL = "referee-csharp-complexity.dll"
 ROSLYN_PACKAGE = "Microsoft.CodeAnalysis.CSharp"
+STRYKER_PACKAGE = "dotnet-stryker"
+STRYKER_VERSION = "5.0.0"
+
+# Stryker.NET 報告（mutation-testing-elements 格式）的狀態 → 合約的狀態
+STRYKER_STATUS = {
+    "Killed": "KILLED",
+    "Timeout": "TIMED_OUT",
+    "Survived": "LIVED",
+    "NoCoverage": "NOT_COVERED",
+    "CompileError": "NOT_VIABLE",
+    "RuntimeError": "NOT_VIABLE",
+    "Ignored": "SKIPPED",
+}
+# --mutate 篩掉的改壞版本也會出現在報告裡（Ignored），但它們根本沒有量，不交給裁判
+MUTATE_FILTER_REASON = "Removed by mutate filter"
 
 SKIP_DIRS = {"bin", "obj", ".git", ".vs", "node_modules"}  # 任何一層都跳過；exclude 只能寫相對專案根目錄的路徑
 GENERATED_SUFFIXES = (".g.cs", ".g.i.cs", ".designer.cs")
@@ -150,6 +169,57 @@ def function_coverage(lines, start, end):
     return sum(1 for h in coverable if h > 0) / len(coverable)
 
 
+def span_text(lines, start, end):
+    """依報告的位置（行、欄都從 1 起算，結尾的欄不含）從原始碼取出那一段。"""
+    (l0, c0), (l1, c1) = start, end
+    if not 1 <= l0 <= l1 <= len(lines):
+        return None
+    if l0 == l1:
+        return lines[l0 - 1][c0 - 1:c1 - 1]
+    return "\n".join([lines[l0 - 1][c0 - 1:]] + lines[l0:l1 - 1] + [lines[l1 - 1][:c1 - 1]])
+
+
+def mutate_patterns(changed_files):
+    """改到的檔案 → Stryker 的 --mutate 樣式。Stryker 用專案的路徑比對，**/ 開頭才比得到相對於專案根目錄的路徑。"""
+    return ["**/" + f for f in changed_files]
+
+
+def mutants_from_report(report, root):
+    """Stryker 的 JSON 報告 → 合約的改壞版本串列。--mutate 篩掉的不列；不認得的狀態丟 InspectorError。"""
+    mutants = []
+    for full, info in sorted(report.get("files", {}).items()):
+        rel = paths.normalize(os.path.relpath(full, root))
+        if rel.startswith("../"):
+            continue
+        lines = (info.get("source") or "").splitlines()
+        for m in info.get("mutants", []):
+            status = m.get("status")
+            if status == "Ignored" and m.get("statusReason") == MUTATE_FILTER_REASON:
+                continue
+            if status not in STRYKER_STATUS:
+                raise InspectorError("Stryker 報告裡有不認得的狀態 {!r}（{}:{}）".format(status, rel, m["location"]["start"]["line"]))
+            start, end = m["location"]["start"], m["location"]["end"]
+            item = {"file": rel, "line": start["line"], "column": start["column"], "mutator": m["mutatorName"],
+                    "status": STRYKER_STATUS[status]}
+            original = span_text(lines, (start["line"], start["column"]), (end["line"], end["column"]))
+            if original is not None:
+                item["original"] = original
+            if m.get("replacement") is not None:
+                item["replacement"] = m["replacement"]
+            mutants.append(item)
+    return mutants
+
+
+WINDOWS_MAX_PATH = 260
+
+
+def too_long_for_windows(path, is_windows=None):
+    """Stryker.NET 用 Win32 的 FileVersionInfo 讀自己的版本，路徑（含結尾的 NUL）到 260 字元就讀不到。"""
+    if is_windows is None:
+        is_windows = os.name == "nt"
+    return is_windows and len(path) >= WINDOWS_MAX_PATH
+
+
 def roslyn_version(csproj_text):
     marker = 'Include="{}" Version="'.format(ROSLYN_PACKAGE)
     i = csproj_text.find(marker)
@@ -239,6 +309,39 @@ def complexity_tool():
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+def stryker_tool():
+    """回傳 dotnet-stryker 的路徑。第一次使用時 dotnet tool install 到工具快取目錄，之後直接執行。
+
+    安裝在帶隔離檔（NuGet.config、global.json）的目錄執行，不受專案的 NuGet 來源和 SDK 釘選影響。
+    dotnet tool install 裝好的工具記著安裝位置的絕對路徑，不能裝完再搬，所以直接裝到最後的目錄；
+    裝成功才寫 .installed，中途中斷的目錄下次會整個刪掉重裝。
+    """
+    path = os.path.join(tools_dir(), "{}-{}".format(STRYKER_PACKAGE, STRYKER_VERSION))
+    exe = os.path.join(path, "bin", STRYKER_PACKAGE + (".exe" if os.name == "nt" else ""))
+    marker = os.path.join(path, ".installed")
+    if os.path.exists(marker):
+        return exe
+    shutil.rmtree(path, ignore_errors=True)
+    os.makedirs(path)
+    for name, content in ISOLATION_FILES.items():
+        with open(os.path.join(path, name), "w", encoding="utf-8", newline="\n") as f:
+            f.write(content)
+    log("安裝 {} {}（只有第一次，要網路）...".format(STRYKER_PACKAGE, STRYKER_VERSION))
+    r = run(["dotnet", "tool", "install", STRYKER_PACKAGE, "--version", STRYKER_VERSION, "--tool-path", "bin"], cwd=path)
+    if r.returncode != 0:
+        raise InspectorError("{} 安裝失敗：\n{}{}".format(STRYKER_PACKAGE, r.stdout, r.stderr))
+    longest = max((os.path.realpath(os.path.join(d, n)) for d, _, names in os.walk(path) for n in names), key=len)
+    if too_long_for_windows(longest):
+        shutil.rmtree(path, ignore_errors=True)
+        raise InspectorError(
+            "工具快取目錄的路徑太長：Stryker.NET 裝在 {} 時，最長的檔案路徑有 {} 個字元，超過 Windows 的 {} 字元上限，"
+            "Stryker.NET 會讀不到自己的檔案而當掉。請把 REFEREE_TOOLS_DIR 設到短一點的路徑（例如 C:\\referee-tools）".format(
+                path, len(longest), WINDOWS_MAX_PATH))
+    with open(marker, "w", encoding="utf-8") as f:
+        f.write(STRYKER_VERSION + "\n")
+    return exe
+
+
 def measure_complexity(root, files):
     r = run(["dotnet", complexity_tool(), root], stdin="\n".join(files) + "\n")
     if r.returncode != 0:
@@ -286,10 +389,44 @@ def measure_functions(ctx, target):
     return sheet
 
 
+# ---------- mutants ----------
+
+def measure_mutants(ctx, target, workers):
+    root = os.getcwd()
+    target = find_target(root, target)
+    stryker = stryker_tool()
+    with tempfile.TemporaryDirectory() as out:
+        # --break-on-initial-test-failure：沒有這個，Stryker 會把一開始就失敗的測試擱著繼續跑，抓錯檢查照樣通過
+        cmd = [stryker, "--reporter", "json", "--output", out, "--skip-version-check", "--break-on-initial-test-failure"]
+        cmd += ["--test-project", target] if target.endswith(".csproj") else ["--solution", target]
+        if workers is not None:
+            cmd += ["--concurrency", str(workers)]
+        for pattern in mutate_patterns(ctx.get("changed_files") or []):
+            cmd += ["--mutate", pattern]
+        r = run(cmd, cwd=root)
+        sys.stderr.write(r.stdout)
+        if r.returncode != 0:
+            raise InspectorError("Stryker.NET 執行失敗（測試沒有全部通過時也會這樣，請先修好第一關）：\n" + r.stderr)
+        report = os.path.join(out, "reports", "mutation-report.json")
+        if os.path.exists(report):
+            with open(report, encoding="utf-8") as f:
+                mutants = mutants_from_report(json.load(f), root)
+        else:
+            log("Stryker.NET 沒有產生報告（沒有可以改壞的地方，或要改壞的檔案不在任何被測試的專案裡）")
+            mutants = []
+    sheet = {"schema": sheets.MUTANTS_SCHEMA,
+             "tools": {STRYKER_PACKAGE: STRYKER_VERSION, "dotnet-sdk": dotnet_version(root)},
+             "settings": {"target": target, "workers": workers},
+             "mutants": mutants}
+    sheets.parse_mutants(sheet)
+    return sheet
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="csharp.py", description="C# 標準檢查員")
-    parser.add_argument("mode", choices=["functions"])
+    parser.add_argument("mode", choices=["functions", "mutants"])
     parser.add_argument("--target", metavar="檔案", help="要測試的 .sln、.slnx 或 .csproj")
+    parser.add_argument("--workers", type=int, metavar="N", help="mutants：Stryker.NET 同時跑幾個")
     args = parser.parse_args(argv)
 
     try:
@@ -299,7 +436,10 @@ def main(argv=None):
             raise InspectorError("沒有 REFEREE_OUT 或 REFEREE_CONTEXT 環境變數，這支檢查員要由裁判啟動")
         with open(context, encoding="utf-8") as f:
             ctx = json.load(f)
-        sheet = measure_functions(ctx, args.target)
+        if args.mode == "functions":
+            sheet = measure_functions(ctx, args.target)
+        else:
+            sheet = measure_mutants(ctx, args.target, args.workers)
     except (InspectorError, RefereeError) as e:
         print(e, file=sys.stderr)
         return 1
