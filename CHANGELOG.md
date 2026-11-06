@@ -1,5 +1,11 @@
 # 更新記錄
 
+## v0.1.3
+
+- 加上 `.gitattributes`：`*.sh` 一律以 LF 取出。之前在 Windows 上 `core.autocrlf=true` 時，submodule 裡的 `gate.sh` 會是 CRLF，照 README 用 `cp` 複製到專案後，bash 可能因為 `$''` 執行失敗。
+- `gate.sh`：`&&` 和 `[` 之間補一個空格（v0.1.2 漏掉，不影響執行）。
+- **升級注意**：v0.1.2 在 Windows 上用 `cp` 複製過 `gate.sh` 的專案，確認檔案是 LF（`git ls-files --eol .claude/hooks/gate.sh` 的 `w/` 要是 `lf`）。升到 v0.1.3 後重新複製一次即可。
+
 ## v0.1.2
 
 - `gate.sh`：判斷有沒有改東西的 `git diff` 不再把警告（例如 Windows 上 `core.autocrlf=true` 時的「LF will be replaced by CRLF」）混進交給 AI 的訊息。

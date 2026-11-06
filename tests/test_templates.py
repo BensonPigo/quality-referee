@@ -2,6 +2,7 @@
 
 import json
 import os
+import subprocess
 import unittest
 
 from referee import config, equivalents
@@ -35,6 +36,16 @@ class GoTemplate(unittest.TestCase):
                      "/.github/**", "/.gitea/**", "/.claude/**"):
             self.assertIn("Edit({})".format(path), deny)
         self.assertTrue(os.path.isfile(os.path.join(TEMPLATE, ".claude", "hooks", "gate.sh")))
+
+    def test_shell_scripts_are_checked_out_with_lf(self):
+        # 專案用 cp 複製 gate.sh；Windows 上 core.autocrlf=true 時，沒有 eol=lf 就會取出成 CRLF，bash 執行失敗
+        files = subprocess.run(["git", "ls-files", "*.sh"], cwd=REPO, stdout=subprocess.PIPE,
+                               universal_newlines=True, check=True).stdout.split()
+        self.assertIn("templates/go/.claude/hooks/gate.sh", files)
+        for f in files:
+            attr = subprocess.run(["git", "check-attr", "eol", "--", f], cwd=REPO, stdout=subprocess.PIPE,
+                                  universal_newlines=True, check=True).stdout
+            self.assertTrue(attr.strip().endswith(": eol: lf"), attr)
 
 
 if __name__ == "__main__":
