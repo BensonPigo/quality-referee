@@ -1,0 +1,245 @@
+# 範例專案 csharp。不要直接編輯，用 python selftest.py --unpack csharp <目錄> 解開，改完用 --pack 存回
+--- file: .gitignore
+bin/
+obj/
+
+--- file: .referee.json
+{
+  "version": 1,
+  "base": "origin/main",
+  "gates": ["test", "crap"],
+  "sources": ["**/*.cs"],
+  "tests": ["**/*.Tests/**"],
+  "exclude": ["tools/"],
+  "test": {"command": ["dotnet", "test", "Sample.slnx"]},
+  "crap": {
+    "threshold": 12,
+    "inspector": ["{python}", "{csharp_inspector}", "functions"]
+  }
+}
+
+--- file: Sample.slnx
+<Solution>
+  <Project Path="Shop/Shop.csproj" />
+  <Project Path="Legacy/Legacy.csproj" />
+  <Project Path="Shop.Tests/Shop.Tests.csproj" />
+</Solution>
+
+--- file: global.json
+{"sdk": {"version": "10.0.100", "rollForward": "latestFeature"}}
+
+--- file: Legacy/Legacy.csproj
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+</Project>
+
+--- file: Legacy/Rounding.cs
+namespace Legacy;
+
+// 沒有任何測試專案引用這個專案，覆蓋率是 0
+public static class Rounding
+{
+    // 複雜度 3：1 + if + ??
+    public static decimal Round(decimal? value)
+    {
+        if (value < 0)
+        {
+            return 0;
+        }
+        return Math.Round(value ?? 0, 2);
+    }
+}
+
+--- file: Shop/Cart.cs
+namespace Shop;
+
+public sealed class Cart
+{
+    private readonly List<(string Sku, int Qty, decimal Price)> _items = new();
+    private string _owner = "";
+
+    // 複雜度 1
+    public int Count => _items.Count;
+
+    public string Owner
+    {
+        // 複雜度 1
+        get => _owner;
+        // 複雜度 2：1 + if
+        set
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                throw new ArgumentException("owner");
+            }
+            _owner = value;
+        }
+    }
+
+    // 複雜度 2：1 + if
+    public void Add(string sku, int qty, decimal price)
+    {
+        if (qty <= 0)
+        {
+            return;
+        }
+        _items.Add((sku, qty, price));
+    }
+
+    // 複雜度 2：1 + lambda 裡的 ??
+    public decimal Sum(IReadOnlyDictionary<string, decimal>? rates) =>
+        _items.Sum(i => i.Qty * i.Price * (rates?.GetValueOrDefault(i.Sku) ?? 1m));
+
+    // 複雜度 3：1 + 區域函式裡的 foreach + if
+    public int CountSku(string prefix)
+    {
+        return Matches();
+
+        int Matches()
+        {
+            var n = 0;
+            foreach (var i in _items)
+            {
+                if (i.Sku.StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    n++;
+                }
+            }
+            return n;
+        }
+    }
+
+    // 複雜度 2：1 + catch
+    public async Task<decimal> TotalWithShippingAsync(Func<Task<decimal>> shipping)
+    {
+        try
+        {
+            var fee = await shipping();
+            return Sum(null) + fee;
+        }
+        catch (TimeoutException)
+        {
+            return Sum(null);
+        }
+    }
+}
+
+--- file: Shop/Pricing.cs
+namespace Shop;
+
+// 需求規格：
+//  1. 小計 <= 0，金額為 0
+//  2. 會員九折
+//  3. 優惠券 SAVE100：打折後滿 1000 元，再折 100 元
+//  4. 會員等級：點數 >= 1000 金卡、>= 500 銀卡、> 0 銅卡，其餘無
+public static class Pricing
+{
+    // 複雜度 5：1 + if + ?: + if + &&
+    public static decimal Total(decimal subtotal, bool member, string coupon)
+    {
+        if (subtotal <= 0)
+        {
+            return 0;
+        }
+        var total = member ? subtotal * 0.9m : subtotal;
+        if (coupon == "SAVE100" && total >= 1000)
+        {
+            total -= 100;
+        }
+        return total;
+    }
+
+    // 複雜度 4：1 + 三個不是 _ 的分支（沒有測試）
+    public static string Tier(int points) => points switch
+    {
+        >= 1000 => "gold",
+        >= 500 => "silver",
+        > 0 => "bronze",
+        _ => "none",
+    };
+}
+
+--- file: Shop/Shop.csproj
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+</Project>
+
+--- file: Shop.Tests/CartTests.cs
+using Shop;
+using Xunit;
+
+public class CartTests
+{
+    [Fact]
+    public void AddSkipsZeroQuantity()
+    {
+        var cart = new Cart();
+        cart.Add("A1", 2, 10m);
+        cart.Add("A2", 0, 10m);
+        Assert.Equal(1, cart.Count);
+        Assert.Equal(20m, cart.Sum(null));
+    }
+
+    [Fact]
+    public void CountSkuByPrefix()
+    {
+        var cart = new Cart();
+        cart.Add("A1", 1, 1m);
+        cart.Add("B1", 1, 1m);
+        cart.Add("A2", 1, 1m);
+        Assert.Equal(2, cart.CountSku("A"));
+    }
+
+    [Fact]
+    public async Task TotalWithShipping()
+    {
+        var cart = new Cart();
+        cart.Add("A1", 1, 100m);
+        Assert.Equal(160m, await cart.TotalWithShippingAsync(() => Task.FromResult(60m)));
+    }
+}
+
+--- file: Shop.Tests/PricingTests.cs
+using Shop;
+using Xunit;
+
+public class PricingTests
+{
+    [Theory]
+    [InlineData(0, false, "", 0)]
+    [InlineData(500, false, "", 500)]
+    [InlineData(1000, true, "", 900)]
+    [InlineData(1000, false, "SAVE100", 900)]
+    [InlineData(999, false, "SAVE100", 999)]
+    public void Total(decimal subtotal, bool member, string coupon, decimal expected)
+    {
+        Assert.Equal(expected, Pricing.Total(subtotal, member, coupon));
+    }
+}
+
+--- file: Shop.Tests/Shop.Tests.csproj
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <PackageReference Include="coverlet.collector" Version="10.1.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Shop/Shop.csproj" />
+  </ItemGroup>
+</Project>

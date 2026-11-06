@@ -1,4 +1,5 @@
 {
+ "crap_settings_line": "檢查員設定：coverage_scope package",
  "scenarios": [
   {
    "name": "沒改東西：CRAP 通過",
