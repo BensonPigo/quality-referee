@@ -934,6 +934,44 @@
    ]
   },
   {
+   "name": "gate.sh：core.autocrlf=true 時 git diff 的「LF will be replaced by CRLF」警告不混進訊息",
+   "mount": "go",
+   "commit_edits": [
+    {
+     "file": ".referee.json",
+     "old": "\"base\": \"origin/main\"",
+     "new": "\"base\": \"main\""
+    }
+   ],
+   "edits": [
+    {
+     "file": "shipping/fee_test.go",
+     "old": "got != 0 {",
+     "new": "got != 5 {"
+    }
+   ],
+   "steps": [
+    {
+     "shell": [
+      "{bash}",
+      "{gate_sh}"
+     ],
+     "exit": 2,
+     "contains": [
+      "第一關沒過"
+     ],
+     "env": {
+      "GIT_CONFIG_COUNT": "1",
+      "GIT_CONFIG_KEY_0": "core.autocrlf",
+      "GIT_CONFIG_VALUE_0": "true"
+     },
+     "not_contains": [
+      "LF will be replaced"
+     ]
+    }
+   ]
+  },
+  {
    "name": "gate.sh：沒有 tools/referee/referee.py 又有改檔案，結束碼 2，提示 git submodule update --init",
    "mount": "go",
    "commit_edits": [

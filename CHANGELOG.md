@@ -1,5 +1,11 @@
 # 更新記錄
 
+## v0.1.2
+
+- `gate.sh`：判斷有沒有改東西的 `git diff` 不再把警告（例如 Windows 上 `core.autocrlf=true` 時的「LF will be replaced by CRLF」）混進交給 AI 的訊息。
+- **升級注意**：`gate.sh` 是複製到專案裡的，升級 submodule 不會更新它。要重新執行 `cp tools/referee/templates/go/.claude/hooks/gate.sh .claude/hooks/`。
+- README 的驗證狀態：BeThere 實際導入的三關結果，以及 Claude Code 實際觸發 Stop hook，改列為已驗證。
+
 ## v0.1.1
 
 - `crap` 不加 `--base`（整個專案）時，超標的函式後面也附改善方向（「要拆函式」或「覆蓋率要到 X%」），跟 `--base` 和 JSON 報告一致。
