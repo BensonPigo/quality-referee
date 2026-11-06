@@ -20,8 +20,9 @@ base="${REFEREE_BASE:-$("$py" -c 'import json; print(json.load(open(".referee.js
 # 找不到 base（例如還沒 fetch）就不檢查，CI 還會再擋一次
 git merge-base "$base" HEAD >/dev/null 2>&1 || exit 0
 
-# 這次沒有改到任何檔案，例如只是回答問題，就不用檢查
-if git diff --quiet "$(git merge-base "$base" HEAD)" && [ -z "$(git ls-files --others --exclude-standard)" ]; then
+# 這次沒有改到任何檔案，例如只是回答問題，就不用檢查。
+# git 的警告（例如 Windows 上的「LF will be replaced by CRLF」）丟掉，不然會混進交給 AI 的訊息
+if git diff --quiet "$(git merge-base "$base" HEAD)" 2>/dev/null &&[ -z "$(git ls-files --others --exclude-standard)" ]; then
 	exit 0
 fi
 

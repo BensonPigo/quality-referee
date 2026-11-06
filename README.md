@@ -29,7 +29,7 @@
   1. 用 submodule 掛上裁判，複製範本（見「安裝到專案」）。
   2. 在 `.referee.json` 選檢查員。標準檢查員能用就用，只調參數，例如 Go 的 `--coverage-scope module`；標準檢查員量不了這個專案時，自己寫一支，照合約交出記分表（見「自訂檢查員」）。
   3. 寫測試、補測試，讓三道關過得去；認為某個改壞版本「改了也沒差」時，寫進排除清單，交給人核准。
-  4. 升級裁判時，改 submodule 指到的版本。
+  4. 升級裁判時，改 submodule 指到的版本，再看 CHANGELOG：範本複製出去的檔案（例如 `.claude/hooks/gate.sh`）有改的話，要重新複製。
 - **檢查員**（標準的或自訂的都一樣）：只回報量到什麼。函式的複雜度、起訖行、覆蓋率；每個改壞版本在哪一行哪一欄、改了什麼、有沒有被測試抓到。量測失敗時結束碼不是 0，裁判會停下並印出檢查員的輸出。
 - **人**：裁判只判斷數字。測試寫得對不對、排除的理由成不成立，要人看。
 
@@ -173,9 +173,10 @@ selftest 的 gate.sh 情境把這個 repo 的 `git ls-files` 複製到範例的 
 - 單元測試、selftest 的 Go 範例情境（含 gate.sh 情境）：本機 Windows（Git for Windows 的 bash），以及每次推送和 PR 時的 GitHub Actions（`.github/workflows/selftest.yml`，ubuntu-latest）。
 - 和 quality-tools v2.4.0 對照：Go 範例專案的 CRAP 表和抓錯計數（package、module 兩種範圍）；BeThere 整個專案的 CRAP 表（module 範圍，329 列）和 `internal/rundown` 的抓錯計數。
 - 照這份 README 在 BeThere 的暫存 clone 掛上工具：第一、二關通過；改壞一個測試時 gate.sh 擋下。
+- BeThere 實際導入（v0.1.0，module 範圍）：以 readbody-split 合併前的 main 當 base 跑 `check`，三關通過（改到 30 個函式；抓錯檢查 47 個改壞版本全抓到，排除清單用上 1 筆）。
+- Claude Code 實際觸發 Stop hook：在 BeThere 的對話裡改壞一個測試，結束回覆時 gate.sh 擋下，訊息是「第一關沒過」。
 
 還沒驗證：
 
 - `templates/go/workflows/go.yml` 還沒在 runner 上跑過，本機只確認 YAML 能解析、結構正確（沒有 actionlint）。第一次在專案的 runner 上跑時，submodule 的存取權杖可能要調整。範本用的 actions 是 v7（Node 24），Gitea 的 act_runner 支不支援還沒確認。
 - macOS 上還沒跑過。
-- Claude Code 實際觸發 Stop hook 的流程沒有跑過，selftest 只用 shell 步驟直接執行 gate.sh。
