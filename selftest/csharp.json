@@ -1,0 +1,154 @@
+{
+ "crap_settings_line": "檢查員設定：target Sample.slnx",
+ "hostile_tools_dir": true,
+ "scenarios": [
+  {
+   "name": "工具已有快取：整個專案的 CRAP 表格再比一次快照，json 報告帶 tools 和 settings",
+   "run": [
+    "crap",
+    "--json",
+    "out-crap.json"
+   ],
+   "exit": 1,
+   "crap_snapshot": true,
+   "contains": [
+    "FAIL：1 個函式的 CRAP 超過門檻 12"
+   ],
+   "json": "out-crap.json",
+   "json_values": {
+    "inspector.settings.target": "Sample.slnx",
+    "crap.untouched_over": null
+   }
+  },
+  {
+   "name": "沒改東西：CRAP 通過",
+   "run": [
+    "crap",
+    "--base",
+    "main"
+   ],
+   "exit": 0,
+   "contains": [
+    "PASS：這次沒有改到任何函式"
+   ]
+  },
+  {
+   "name": "改到沒有測試的 Tier：CRAP 沒過，要補測試",
+   "edits": [
+    {
+     "file": "Shop/Pricing.cs",
+     "old": ">= 500 => \"silver\",",
+     "new": ">= 600 => \"silver\","
+    }
+   ],
+   "run": [
+    "crap",
+    "--base",
+    "main"
+   ],
+   "exit": 1,
+   "contains": [
+    "覆蓋率要到 21%",
+    "FAIL：1 個函式"
+   ],
+   "not_contains": [
+    "Rounding.Round"
+   ]
+  },
+  {
+   "name": "改 Tier 也補上測試：CRAP 通過",
+   "edits": [
+    {
+     "file": "Shop/Pricing.cs",
+     "old": ">= 500 => \"silver\",",
+     "new": ">= 600 => \"silver\","
+    },
+    {
+     "file": "Shop.Tests/TierTests.cs",
+     "content": "using Shop;\nusing Xunit;\n\npublic class TierTests\n{\n    [Theory]\n    [InlineData(1000, \"gold\")]\n    [InlineData(600, \"silver\")]\n    [InlineData(599, \"bronze\")]\n    [InlineData(1, \"bronze\")]\n    [InlineData(0, \"none\")]\n    public void Tier(int points, string expected)\n    {\n        Assert.Equal(expected, Pricing.Tier(points));\n    }\n}\n"
+    }
+   ],
+   "run": [
+    "crap",
+    "--base",
+    "main"
+   ],
+   "exit": 0,
+   "contains": [
+    "Pricing.Tier",
+    "100.0%",
+    "PASS：所有函式的 CRAP 都在門檻 12 以內"
+   ]
+  },
+  {
+   "name": "只改測試檔：不算改到函式",
+   "edits": [
+    {
+     "file": "Shop.Tests/PricingTests.cs",
+     "old": "[InlineData(500, false, \"\", 500)]",
+     "new": "[InlineData(501, false, \"\", 501)]"
+    }
+   ],
+   "run": [
+    "crap",
+    "--base",
+    "main"
+   ],
+   "exit": 0,
+   "contains": [
+    "PASS：這次沒有改到任何函式"
+   ]
+  },
+  {
+   "name": "測試失敗：crap 結束碼 2，請先修好第一關",
+   "edits": [
+    {
+     "file": "Shop.Tests/PricingTests.cs",
+     "old": "[InlineData(500, false, \"\", 500)]",
+     "new": "[InlineData(500, false, \"\", 501)]"
+    }
+   ],
+   "run": [
+    "crap"
+   ],
+   "exit": 2,
+   "contains": [
+    "請先修好第一關"
+   ]
+  },
+  {
+   "name": "--target 指定測試專案：設定行寫指定的檔案，沒被引用的 Legacy 覆蓋率仍是 0",
+   "edits": [
+    {
+     "file": ".referee.json",
+     "old": "\"{csharp_inspector}\", \"functions\"]",
+     "new": "\"{csharp_inspector}\", \"functions\", \"--target\", \"Shop.Tests/Shop.Tests.csproj\"]"
+    }
+   ],
+   "run": [
+    "crap"
+   ],
+   "exit": 1,
+   "contains": [
+    "檢查員設定：target Shop.Tests/Shop.Tests.csproj",
+    "0.0%     Rounding.Round"
+   ]
+  },
+  {
+   "name": "根目錄有兩個方案檔又沒給 --target：結束碼 2",
+   "edits": [
+    {
+     "file": "Other.slnx",
+     "content": "<Solution>\n  <Project Path=\"Shop/Shop.csproj\" />\n</Solution>\n"
+    }
+   ],
+   "run": [
+    "crap"
+   ],
+   "exit": 2,
+   "contains": [
+    "請在檢查員指令加 --target"
+   ]
+  }
+ ]
+}

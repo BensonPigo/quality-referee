@@ -1,0 +1,11 @@
+CRAP     C      覆蓋率      函式                       位置
+20.0     4      0.0%     Pricing.Tier             Shop/Pricing.cs:26 ❌ 覆蓋率要到 21%
+12.0     3      0.0%     Rounding.Round           Legacy/Rounding.cs:7   
+6.0      2      0.0%     Cart.Owner.set           Shop/Cart.cs:16   
+5.0      5      100.0%   Pricing.Total            Shop/Pricing.cs:11   
+3.0      3      100.0%   Cart.CountSku            Shop/Cart.cs:41   
+2.2      2      62.5%    Cart.TotalWithShippingAsync Shop/Cart.cs:60   
+2.0      1      0.0%     Cart.Owner.get           Shop/Cart.cs:14   
+2.0      2      100.0%   Cart.Add                 Shop/Cart.cs:27   
+2.0      2      100.0%   Cart.Sum                 Shop/Cart.cs:37   
+1.0      1      100.0%   Cart.Count.get           Shop/Cart.cs:9   

@@ -1,4 +1,4 @@
-# quality-referee 自己的 CI：單元測試和 Go 範例專案的全部情境。
+# quality-referee 自己的 CI：單元測試和各語言範例專案（Go、C#）的全部情境。
 name: selftest
 
 on:
@@ -16,6 +16,11 @@ jobs:
         with:
           go-version: stable
           cache: false # 這個 repo 根目錄沒有 go.sum，快取用不到；範例專案在 selftest 裡才建立
+
+      # C# 範例專案的 global.json 指定 10.0.x
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
 
       - uses: actions/setup-python@v7
         with:

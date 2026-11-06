@@ -1,0 +1,188 @@
+// C# 檢查員的複雜度工具：用 Roslyn 依原始碼算每個成員的圈複雜度和起訖行。
+//
+// 這個檔案以 .txt 結尾放在 submodule 裡，主機專案的 csproj 不會把它當原始碼編進去。
+// inspectors/csharp.py 第一次執行時，把它複製到工具快取目錄（REFEREE_TOOLS_DIR）改名成 Program.cs，在那裡建置。
+//
+// 用法：referee-csharp-complexity <專案根目錄>
+//   stdin：要量的檔案，每行一個，相對於專案根目錄、用 / 分隔
+//   stdout：JSON 陣列 [{"file", "name", "start", "end", "complexity"}]
+//
+// 複雜度 = 1 + 下面每一項的個數：
+//   if、非 default 的 case 標籤、不是 _ 的 switch 運算式分支、for、foreach、while、do、catch、&&、||、?:、??
+// lambda、匿名方法、區域函式都算進所在的成員，不另外列出（跟 gocyclo 對 closure 的算法一樣）。
+// 列出的成員：方法、建構式、解構式、運算子、轉換運算子、屬性／索引子／事件的存取子（含 => 寫法）。沒有本體的成員不列。
+
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Text.Json;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+
+internal static class Program
+{
+    private static int Main(string[] args)
+    {
+        if (args.Length != 1)
+        {
+            Console.Error.WriteLine("用法：referee-csharp-complexity <專案根目錄>，檔案清單從 stdin 讀");
+            return 2;
+        }
+        var root = args[0];
+        var options = new CSharpParseOptions(LanguageVersion.Preview);
+        var result = new List<Dictionary<string, object>>();
+        string line;
+        while ((line = Console.In.ReadLine()) != null)
+        {
+            var rel = line.Trim();
+            if (rel.Length == 0)
+            {
+                continue;
+            }
+            var text = File.ReadAllText(Path.Combine(root, rel));
+            var tree = CSharpSyntaxTree.ParseText(text, options);
+            foreach (var member in Members(tree.GetRoot()))
+            {
+                var span = member.Node.GetLocation().GetLineSpan();
+                result.Add(new Dictionary<string, object>
+                {
+                    ["file"] = rel,
+                    ["name"] = member.Name,
+                    ["start"] = StartLine(member.Node),
+                    ["end"] = span.EndLinePosition.Line + 1,
+                    ["complexity"] = Complexity(member.Body),
+                });
+            }
+        }
+        var stdout = new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(false));
+        stdout.Write(JsonSerializer.Serialize(result));
+        stdout.Flush();
+        return 0;
+    }
+
+    private sealed class Member
+    {
+        public SyntaxNode Node;
+        public SyntaxNode Body;
+        public string Name;
+    }
+
+    private static IEnumerable<Member> Members(SyntaxNode root)
+    {
+        foreach (var node in root.DescendantNodes())
+        {
+            var type = node.Parent as TypeDeclarationSyntax;
+            switch (node)
+            {
+                case BaseMethodDeclarationSyntax m when type != null && (m.Body != null || m.ExpressionBody != null):
+                    yield return new Member { Node = m, Body = (SyntaxNode)m.Body ?? m.ExpressionBody, Name = TypeName(type) + "." + MethodName(m, type) };
+                    break;
+                case PropertyDeclarationSyntax p when type != null && p.ExpressionBody != null:
+                    yield return new Member { Node = p, Body = p.ExpressionBody, Name = TypeName(type) + "." + p.Identifier.Text + ".get" };
+                    break;
+                case IndexerDeclarationSyntax i when type != null && i.ExpressionBody != null:
+                    yield return new Member { Node = i, Body = i.ExpressionBody, Name = TypeName(type) + ".this[].get" };
+                    break;
+                case AccessorDeclarationSyntax a when a.Body != null || a.ExpressionBody != null:
+                    var owner = a.Parent?.Parent;
+                    var ownerType = owner?.Parent as TypeDeclarationSyntax;
+                    if (ownerType != null)
+                    {
+                        yield return new Member { Node = a, Body = (SyntaxNode)a.Body ?? a.ExpressionBody, Name = TypeName(ownerType) + "." + OwnerName(owner) + "." + a.Keyword.Text };
+                    }
+                    break;
+            }
+        }
+    }
+
+    private static string TypeName(TypeDeclarationSyntax type)
+    {
+        var names = new List<string>();
+        for (SyntaxNode n = type; n != null; n = n.Parent)
+        {
+            if (n is TypeDeclarationSyntax t)
+            {
+                names.Insert(0, t.Identifier.Text);
+            }
+        }
+        return string.Join(".", names);
+    }
+
+    private static string MethodName(BaseMethodDeclarationSyntax m, TypeDeclarationSyntax type)
+    {
+        switch (m)
+        {
+            case MethodDeclarationSyntax method:
+                return method.Identifier.Text;
+            case ConstructorDeclarationSyntax c:
+                return c.Modifiers.Any(SyntaxKind.StaticKeyword) ? "cctor" : "ctor";
+            case DestructorDeclarationSyntax _:
+                return "Finalize";
+            case OperatorDeclarationSyntax o:
+                return "operator " + o.OperatorToken.Text;
+            case ConversionOperatorDeclarationSyntax c:
+                return c.ImplicitOrExplicitKeyword.Text + " operator " + c.Type;
+            default:
+                return type.Identifier.Text;
+        }
+    }
+
+    private static string OwnerName(SyntaxNode owner)
+    {
+        switch (owner)
+        {
+            case PropertyDeclarationSyntax p:
+                return p.Identifier.Text;
+            case EventDeclarationSyntax e:
+                return e.Identifier.Text;
+            case IndexerDeclarationSyntax _:
+                return "this[]";
+            default:
+                return "?";
+        }
+    }
+
+    // 起始行跳過屬性（[Fact] 這類），從修飾字或型別開始算
+    private static int StartLine(SyntaxNode node)
+    {
+        var first = node.DescendantTokens().FirstOrDefault(t => !t.Parent.AncestorsAndSelf().Any(a => a is AttributeListSyntax));
+        var token = first == default ? node.GetFirstToken() : first;
+        return token.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
+    }
+
+    private static int Complexity(SyntaxNode body)
+    {
+        var count = 1;
+        foreach (var n in body.DescendantNodesAndSelf())
+        {
+            switch (n.Kind())
+            {
+                case SyntaxKind.IfStatement:
+                case SyntaxKind.CaseSwitchLabel:
+                case SyntaxKind.CasePatternSwitchLabel:
+                case SyntaxKind.ForStatement:
+                case SyntaxKind.ForEachStatement:
+                case SyntaxKind.ForEachVariableStatement:
+                case SyntaxKind.WhileStatement:
+                case SyntaxKind.DoStatement:
+                case SyntaxKind.CatchClause:
+                case SyntaxKind.LogicalAndExpression:
+                case SyntaxKind.LogicalOrExpression:
+                case SyntaxKind.ConditionalExpression:
+                case SyntaxKind.CoalesceExpression:
+                    count++;
+                    break;
+                case SyntaxKind.SwitchExpressionArm:
+                    if (!(((SwitchExpressionArmSyntax)n).Pattern is DiscardPatternSyntax))
+                    {
+                        count++;
+                    }
+                    break;
+            }
+        }
+        return count;
+    }
+}

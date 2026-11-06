@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- C# 檢查員的複雜度工具。以 .txt 結尾放在 submodule 裡，由 inspectors/csharp.py 複製到工具快取目錄改名後建置。 -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net6.0</TargetFramework>
+    <!-- 只要裝了 .NET 6 以上任何一版 runtime 就能執行 -->
+    <RollForward>Major</RollForward>
+    <AssemblyName>referee-csharp-complexity</AssemblyName>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- net6.0 已經停止支援，新版 SDK 會警告；這支工具只需要能在 .NET 6 以上執行 -->
+    <CheckEolTargetFramework>false</CheckEolTargetFramework>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" />
+  </ItemGroup>
+</Project>

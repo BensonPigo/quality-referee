@@ -17,7 +17,15 @@
 run 是 referee.py 的參數；shell 是直接執行的指令（不經過殼層）；exit 可以是數字或可接受的數字串列；
 json 是該步 --json 寫出的檔名（可以是串列），讀檔後用 referee.schema.validate 驗證格式；
 json_values 是 {"欄位.路徑": 預期值}，路徑用 . 分隔，陣列裡數字是索引，欄位=值 是找第一個符合的元素。
-設定檔和 edits 的字串裡 {python}、{go_inspector} 換成直譯器和 Go 檢查員的路徑。
+步驟可以加 "crap_snapshot": true：輸出裡的 CRAP 表格要跟 selftest/<範例>.crap.txt 一致（例如工具已有快取時再比一次）。
+設定檔和 edits 的字串裡 {python}、{go_inspector}、{csharp_inspector} 換成直譯器和各語言標準檢查員的路徑。
+
+範例的 json 最上層可以加：
+- "crap_settings_line"：整個專案的 crap 輸出裡要有的「檢查員設定：...」那一行。
+- "hostile_tools_dir": true：工具快取目錄（REFEREE_TOOLS_DIR）改成暫存目錄，放在一個塞了惡意設定檔
+  （Directory.Build.props/targets、Directory.Packages.props、global.json、NuGet.config）的上層目錄底下，
+  確認檢查員建置工具時不受上層設定影響。每次都從空的快取開始。
+每個範例跑完，這個 repo 的 inspectors/ 底下不能出現 bin/、obj/（工具不能建置在 submodule 裡）。
 
 情境可以加 "mount": "go"：還原之後、commit_edits 之前，像 submodule 一樣把這個 repo 的 git ls-files 複製到範例的
 tools/referee/，再照 README 的步驟把 templates/<mount>/ 的 .referee.json、.referee-equivalents.json、
@@ -45,6 +53,7 @@ from referee import schema  # noqa: E402
 CASES = os.path.join(HERE, "selftest")
 REFEREE = os.path.join(HERE, "referee.py")
 GO_INSPECTOR = os.path.join(HERE, "inspectors", "go.py")
+CSHARP_INSPECTOR = os.path.join(HERE, "inspectors", "csharp.py")
 FILE_MARK = "--- file: "
 PACK_SKIP = {".git", "__pycache__", "bin", "obj", "coverage", "reports"}
 GIT_ID = ["-c", "user.name=selftest", "-c", "user.email=selftest@example.com", "-c", "core.autocrlf=false"]
@@ -97,9 +106,37 @@ def load_case(name):
 
 
 def subst(text):
-    """{python}、{go_inspector} 換成路徑。字串會放進 JSON，所以反斜線要跳脫。"""
+    """{python}、{go_inspector}、{csharp_inspector} 換成路徑。字串會放進 JSON，所以反斜線要跳脫。"""
     esc = lambda s: json.dumps(s)[1:-1]  # noqa: E731
-    return text.replace("{python}", esc(sys.executable)).replace("{go_inspector}", esc(GO_INSPECTOR))
+    for key, value in (("{python}", sys.executable), ("{go_inspector}", GO_INSPECTOR),
+                       ("{csharp_inspector}", CSHARP_INSPECTOR)):
+        text = text.replace(key, esc(value))
+    return text
+
+
+# 塞在工具快取目錄上層的惡意設定檔：檢查員建置工具時如果沒有擋住上層設定，這些檔案會讓建置失敗
+HOSTILE_FILES = {
+    "Directory.Build.props": "<Project>\n  <PropertyGroup>\n    <TargetFramework>net1.0</TargetFramework>\n"
+                             "  </PropertyGroup>\n</Project>\n",
+    "Directory.Build.targets": '<Project>\n  <Target Name="RefereeHostile" BeforeTargets="Restore;Build">\n'
+                               '    <Error Text="上層的 Directory.Build.targets 影響了工具的建置" />\n  </Target>\n</Project>\n',
+    "Directory.Packages.props": "<Project>\n  <PropertyGroup>\n"
+                                "    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>\n"
+                                "  </PropertyGroup>\n</Project>\n",
+    "global.json": '{"sdk": {"version": "1.0.0", "rollForward": "disable"}}\n',
+    "NuGet.config": '<?xml version="1.0" encoding="utf-8"?>\n<configuration>\n  <packageSources>\n    <clear />\n'
+                    '    <add key="nowhere" value="./no-such-feed" />\n  </packageSources>\n</configuration>\n',
+}
+
+
+def hostile_tools_dir(tmp):
+    """在 tmp 底下建一個塞了惡意設定檔的目錄，回傳它底下的工具快取目錄路徑。"""
+    parent = os.path.join(tmp, "hostile")
+    os.makedirs(parent)
+    for name, content in HOSTILE_FILES.items():
+        with open(os.path.join(parent, name), "w", encoding="utf-8", newline="\n") as fp:
+            fp.write(content)
+    return os.path.join(parent, "tools")
 
 
 def run_sample(name, args):
@@ -107,6 +144,9 @@ def run_sample(name, args):
     tmp = tempfile.mkdtemp(prefix="rs-")
     proj = os.path.join(tmp, name)
     failed = []
+    saved_tools_dir = os.environ.get("REFEREE_TOOLS_DIR")
+    if case.get("hostile_tools_dir"):
+        os.environ["REFEREE_TOOLS_DIR"] = hostile_tools_dir(tmp)
     try:
         unpack(name, proj)
         cfg = os.path.join(proj, ".referee.json")
@@ -130,8 +170,9 @@ def run_sample(name, args):
             with open(snapshot, encoding="utf-8") as fp:
                 expected = fp.read()
             failed += report("crap 整個專案，表格要跟快照一致", r, table == expected, "預期：\n" + expected)
-        failed += report("crap 整個專案，檢查員設定只有 coverage_scope（量 CRAP 不用 workers）", r,
-                         "檢查員設定：coverage_scope package\n" in r.stdout, "預期有：檢查員設定：coverage_scope package")
+        settings_line = case.get("crap_settings_line")
+        if settings_line:
+            failed += report("crap 整個專案，" + settings_line, r, settings_line + "\n" in r.stdout, "預期有：" + settings_line)
 
         init_commit = run(["git", "rev-parse", "HEAD"], proj, check=True).stdout.strip()
         for sc in case["scenarios"]:
@@ -156,13 +197,28 @@ def run_sample(name, args):
                 title = sc["name"] if len(steps) == 1 else "{}（步驟 {}）".format(sc["name"], i)
                 failed += check(title, proj, step.get("run"), step["exit"], step.get("contains", []),
                                 step.get("not_contains", []), step.get("json"), step.get("json_values"),
-                                step.get("shell"), step.get("env"), step.get("in_order", []), step.get("equals"))
+                                step.get("shell"), step.get("env"), step.get("in_order", []), step.get("equals"),
+                                os.path.join(CASES, name + ".crap.txt") if step.get("crap_snapshot") else None)
+        leftovers = build_dirs(os.path.join(HERE, "inspectors"))
+        failed += report("這個 repo 的 inspectors/ 底下沒有 bin/、obj/", r, not leftovers, "找到：" + "、".join(leftovers))
     finally:
+        if saved_tools_dir is None:
+            os.environ.pop("REFEREE_TOOLS_DIR", None)
+        else:
+            os.environ["REFEREE_TOOLS_DIR"] = saved_tools_dir
         if args.keep:
             print("  暫存目錄：" + proj)
         else:
             shutil.rmtree(tmp, onerror=_force_remove)
     return failed
+
+
+def build_dirs(root):
+    """root 底下名稱是 bin 或 obj 的目錄（相對於這個 repo 的路徑）。"""
+    found = []
+    for dirpath, dirs, _ in os.walk(root):
+        found += [os.path.relpath(os.path.join(dirpath, d), HERE) for d in dirs if d in ("bin", "obj")]
+    return found
 
 
 def mount_referee(proj, template):
@@ -253,7 +309,7 @@ def crap_table(stdout):
 
 
 def check(title, proj, cmd, code, contains=(), not_contains=(), json_file=None, json_values=None, shell=None,
-          env=None, in_order=(), equals=None):
+          env=None, in_order=(), equals=None, snapshot=None):
     r = run_shell(proj, shell, env or {}) if shell is not None else referee(proj, cmd)
     output = r.stdout + r.stderr
     problems = []
@@ -266,6 +322,11 @@ def check(title, proj, cmd, code, contains=(), not_contains=(), json_file=None, 
     unexpected = [c for c in not_contains if c in output]
     if unexpected:
         problems.append("輸出不該出現：" + "、".join(unexpected))
+    if snapshot is not None:
+        with open(snapshot, encoding="utf-8") as fp:
+            expected = fp.read()
+        if crap_table(r.stdout) != expected:
+            problems.append("CRAP 表格跟快照不一致，預期：\n" + expected)
     if equals is not None and output.strip() != equals:
         problems.append("輸出是 {!r}（預期 {!r}）".format(output.strip(), equals))
     pos = 0
