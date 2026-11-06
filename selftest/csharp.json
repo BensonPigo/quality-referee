@@ -338,6 +338,180 @@
    "contains": [
     "Stryker.NET 執行失敗"
    ]
+  },
+  {
+   "name": "照 README 掛上（submodule 和範本）：crap 從 tools/referee 執行檢查員，量完 tools/referee 底下沒有多出任何檔案（含 .gitignore 藏起來的 bin/、obj/）",
+   "mount": "csharp",
+   "commit_edits": [
+    {
+     "file": ".referee.json",
+     "old": "\"base\": \"origin/main\"",
+     "new": "\"base\": \"main\""
+    }
+   ],
+   "steps": [
+    {
+     "run": [
+      "crap",
+      "--json",
+      "out-crap.json"
+     ],
+     "exit": 1,
+     "contains": [
+      "Pricing.Tier",
+      "覆蓋率要到 21%",
+      "檢查員設定：target Sample.slnx"
+     ],
+     "json": "out-crap.json",
+     "json_values": {
+      "inspector.command.1": "tools/referee/inspectors/csharp.py"
+     }
+    },
+    {
+     "shell": [
+      "git",
+      "status",
+      "--porcelain",
+      "--ignored",
+      "--",
+      "tools/referee"
+     ],
+     "exit": 0,
+     "equals": ""
+    }
+   ]
+  },
+  {
+   "name": "照 README 掛上：抓錯檢查從 tools/referee 執行，改到優惠券條件全部抓到，量完 tools/referee 底下沒有多出任何檔案",
+   "mount": "csharp",
+   "commit_edits": [
+    {
+     "file": ".referee.json",
+     "old": "\"base\": \"origin/main\"",
+     "new": "\"base\": \"main\""
+    }
+   ],
+   "edits": [
+    {
+     "file": "Shop/Pricing.cs",
+     "old": "if (coupon == \"SAVE100\" && total >= 1000)",
+     "new": "if (total >= 1000 && coupon == \"SAVE100\")"
+    }
+   ],
+   "steps": [
+    {
+     "run": [
+      "mutation",
+      "--base",
+      "main",
+      "--json",
+      "out-mutation.json"
+     ],
+     "exit": 0,
+     "contains": [
+      "抓錯率：100.00%",
+      "PASS"
+     ],
+     "json": "out-mutation.json",
+     "json_values": {
+      "inspector.command.1": "tools/referee/inspectors/csharp.py",
+      "inspector.tools.dotnet-stryker": "5.0.0"
+     }
+    },
+    {
+     "shell": [
+      "git",
+      "status",
+      "--porcelain",
+      "--ignored",
+      "--",
+      "tools/referee"
+     ],
+     "exit": 0,
+     "equals": ""
+    }
+   ]
+  },
+  {
+   "name": "gate.sh（C# 範本）：沒改東西，放行（結束碼 0）",
+   "mount": "csharp",
+   "commit_edits": [
+    {
+     "file": ".referee.json",
+     "old": "\"base\": \"origin/main\"",
+     "new": "\"base\": \"main\""
+    }
+   ],
+   "steps": [
+    {
+     "shell": [
+      "{bash}",
+      "{gate_sh}"
+     ],
+     "exit": 0
+    }
+   ]
+  },
+  {
+   "name": "gate.sh（C# 範本）：改到沒有測試的 Tier，結束碼 2，訊息有「第二關沒過」和覆蓋率要到 21%",
+   "mount": "csharp",
+   "commit_edits": [
+    {
+     "file": ".referee.json",
+     "old": "\"base\": \"origin/main\"",
+     "new": "\"base\": \"main\""
+    }
+   ],
+   "edits": [
+    {
+     "file": "Shop/Pricing.cs",
+     "old": ">= 500 => \"silver\",",
+     "new": ">= 600 => \"silver\","
+    }
+   ],
+   "steps": [
+    {
+     "shell": [
+      "{bash}",
+      "{gate_sh}"
+     ],
+     "exit": 2,
+     "contains": [
+      "第二關沒過",
+      "覆蓋率要到 21%"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "gate.sh（C# 範本）：測試失敗，結束碼 2，訊息有「第一關沒過」",
+   "mount": "csharp",
+   "commit_edits": [
+    {
+     "file": ".referee.json",
+     "old": "\"base\": \"origin/main\"",
+     "new": "\"base\": \"main\""
+    }
+   ],
+   "edits": [
+    {
+     "file": "Shop.Tests/PricingTests.cs",
+     "old": "[InlineData(500, false, \"\", 500)]",
+     "new": "[InlineData(500, false, \"\", 501)]"
+    }
+   ],
+   "steps": [
+    {
+     "shell": [
+      "{bash}",
+      "{gate_sh}"
+     ],
+     "exit": 2,
+     "contains": [
+      "第一關沒過"
+     ]
+    }
+   ]
   }
  ]
 }

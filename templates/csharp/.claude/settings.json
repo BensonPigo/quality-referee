@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "deny": [
+      "Edit(/.referee.json)",
+      "Edit(/.referee-equivalents.json)",
+      "Edit(/.gitmodules)",
+      "Edit(/tools/referee/**)",
+      "Edit(/.github/**)",
+      "Edit(/.gitea/**)",
+      "Edit(/.claude/**)"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/gate.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}

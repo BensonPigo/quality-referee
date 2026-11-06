@@ -1,5 +1,16 @@
 # 更新記錄
 
+## v0.2.0
+
+新增 C# 標準檢查員（SDK 風格、.NET 6 以上的專案）。合約、裁判的判定規則、Go 檢查員都沒變。
+
+- `inspectors/csharp.py functions`：內附的 Roslyn 工具依原始碼算複雜度（規則和 gocyclo 一樣），`dotnet test` 加 coverlet 依行算每個函式的覆蓋率。
+- `inspectors/csharp.py mutants`：Stryker.NET 5.0.0，有改到的檔案時只改壞那些檔案；測試一開始就失敗時以結束碼 2 停下。
+- 工具都放在 `REFEREE_TOOLS_DIR`，在帶隔離設定檔的目錄建置和安裝，不受專案的 `Directory.Build.*`、中央套件管理、`global.json`、`NuGet.config` 影響，也不在 `tools/referee/` 底下留下檔案。
+- 專案範本 `templates/csharp/`：`.referee.json`、`.referee-equivalents.json`、`.claude/settings.json` 和 `gate.sh`（跟 Go 的一模一樣）、GitHub Actions 的三關 workflow（setup-dotnet）。
+- selftest 加上 C# 範例專案；`selftest.py` 支援多個語言（`{csharp_inspector}`、範例資料裡的 `crap_settings_line`、`hostile_tools_dir`、`crap_snapshot`）。selftest 的 CI 加上 setup-dotnet。
+- C# 的已知限制見 README。
+
 ## v0.1.3
 
 - 加上 `.gitattributes`：`*.sh` 一律以 LF 取出。之前在 Windows 上 `core.autocrlf=true` 時，submodule 裡的 `gate.sh` 會是 CRLF，照 README 用 `cp` 複製到專案後，bash 可能因為 `$''` 執行失敗。
