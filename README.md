@@ -152,6 +152,8 @@ python tools/referee/inspectors/go.py functions|mutants [--coverage-scope packag
 - 根目錄有 Go 套件時，gremlins 對根目錄的套件（`.`）一律跑 `./...`，不論範圍是 package 還是 module，都會跑到所有套件的測試，包含 `exclude` 裡的。同理，非根目錄的套件底下有被排除的子套件時，子套件的測試也會被跑到。
 - `.claude/settings.json` 的 `Edit(...)` 規則只擋 Claude Code 的編輯工具，擋不住 AI 用 Bash 改檔，而且只在這個 repo 開的對話生效，在別的目錄開的對話改這個 repo 的檔案不受限制。要確保門檻不被改，要靠 CI 和 CODEOWNERS 之類的審查。
 - 整個專案掃描式的測試（掃全部文件、全部原始碼）會掃到 `tools/referee/`，要照上面的安裝步驟加豁免。
+- 覆蓋率跟執行的平台有關。測試檔有 build constraint（例如 `//go:build !windows`）時，那些測試在別的平台不會跑，被它們測到的函式覆蓋率就不同，CRAP 也跟著不同。例如 BeThere 的 serve 測試在 Windows 上不跑，同一個 base 下，沒改到但超標的函式在本機 Windows 是 31 個，在 CI 的 ubuntu 是 30 個。以 CI 的結果為準。
+- 「新寫的程式沒附測試」不一定會被第二關擋下。新程式如果在既有測試會走到的路徑上，覆蓋率一開始就是 100%，CRAP 只看複雜度。這時要靠第三關的抓錯率，看既有測試有沒有真的驗證新程式的行為。
 
 ## 開發
 
@@ -175,8 +177,10 @@ selftest 的 gate.sh 情境把這個 repo 的 `git ls-files` 複製到範例的 
 - 照這份 README 在 BeThere 的暫存 clone 掛上工具：第一、二關通過；改壞一個測試時 gate.sh 擋下。
 - BeThere 實際導入（v0.1.0，module 範圍）：以 readbody-split 合併前的 main 當 base 跑 `check`，三關通過（改到 30 個函式；抓錯檢查 47 個改壞版本全抓到，排除清單用上 1 筆）。
 - Claude Code 實際觸發 Stop hook：在 BeThere 的對話裡改壞一個測試，結束回覆時 gate.sh 擋下，訊息是「第一關沒過」。
+- `templates/go/workflows/go.yml` 在 GitHub Actions（ubuntu-latest）上跑：BeThere 的 PR #13～#16。submodule 是公開 repo，不用存取權杖。PR #16 有改到 Go 程式，第二、三關在 CI 上實際判定：改到 4 個函式，產生 5 個改壞版本。第一個 commit 沒抓到 1 個，抓錯率 80%，剛好等於門檻，所以通過，報告也列出了沒抓到的那一個。補上測試後 5 個全部抓到，數字和本機一致。
 
 還沒驗證：
 
-- `templates/go/workflows/go.yml` 還沒在 runner 上跑過，本機只確認 YAML 能解析、結構正確（沒有 actionlint）。第一次在專案的 runner 上跑時，submodule 的存取權杖可能要調整。範本用的 actions 是 v7（Node 24），Gitea 的 act_runner 支不支援還沒確認。
+- CI 實際擋下 PR（結束碼 1 讓 workflow 失敗）還沒在 runner 上發生過。判定和結束碼跟本機相同，本機和 selftest 都驗證過結束碼 1；workflow 的每個步驟都是直接執行裁判的指令，結束碼不是 0 時，GitHub Actions 會讓那一步失敗。
+- Gitea 的 act_runner 支不支援範本用的 v7 actions（Node 24）。
 - macOS 上還沒跑過。
