@@ -284,7 +284,8 @@ def measure_functions(ctx, scope, workers):
         })
     sheet = {"schema": sheets.FUNCTIONS_SCHEMA,
              "tools": {"gocyclo": GOCYCLO.rsplit("@", 1)[1]},
-             "settings": {"coverage_scope": scope, "workers": workers},
+             # 量 CRAP 不跑 gremlins，--workers 不生效，不寫進 settings
+             "settings": {"coverage_scope": scope},
              "functions": funcs}
     sheets.parse_functions(sheet)
     return sheet

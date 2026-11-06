@@ -55,7 +55,7 @@ def run_crap(base, cfg, root):
         funcs = touched
         print("只檢查和 {} 相比有改到的函式（共 {} 個）\n".format(base, len(funcs)))
 
-    failed = report.print_crap_table(funcs, threshold, with_advice=bool(base))
+    failed = report.print_crap_table(funcs, threshold)
     print()
     if untouched_over:
         print("另有 {} 個沒改到的函式超過門檻，列為技術債，不計入這次判定。".format(untouched_over))

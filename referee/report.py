@@ -13,17 +13,15 @@ def pct(v):
 
 # ---------- CRAP ----------
 
-def print_crap_table(funcs, threshold, with_advice):
-    """印出 CRAP 表格，回傳超過門檻的函式數量。with_advice 為 True 時，超標的函式後面附上改善方向。"""
+def print_crap_table(funcs, threshold):
+    """印出 CRAP 表格，回傳超過門檻的函式數量。超標的函式後面附上改善方向。"""
     print("{:<8} {:<6} {:<8} {:<24} {}".format("CRAP", "C", "覆蓋率", "函式", "位置"))
     failed = 0
     for f in funcs:
         mark = "  "
         if f.crap > threshold:
             failed += 1
-            mark = "❌"
-            if with_advice:
-                mark += " " + crap.advice_text(f.complexity, threshold)
+            mark = "❌ " + crap.advice_text(f.complexity, threshold)
         print("{:<8.1f} {:<6} {:<8} {:<24} {}:{} {}".format(
             f.crap, f.complexity, "{:.1f}%".format(f.coverage * 100), f.name, f.file, f.start, mark))
     return failed

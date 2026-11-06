@@ -1,5 +1,10 @@
 # 更新記錄
 
+## v0.1.1
+
+- `crap` 不加 `--base`（整個專案）時，超標的函式後面也附改善方向（「要拆函式」或「覆蓋率要到 X%」），跟 `--base` 和 JSON 報告一致。
+- Go 檢查員的 `functions` 不再把 `workers` 寫進 `settings`：量 CRAP 不跑 gremlins，`--workers` 不生效，之前沒帶時會顯示「workers null」。
+
 ## v0.1.0
 
 第一版。
