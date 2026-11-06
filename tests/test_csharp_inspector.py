@@ -127,6 +127,69 @@ class Misc(unittest.TestCase):
         self.assertFalse([n for n in names if n.endswith((".cs", ".csproj"))], names)
 
 
+SOURCE = "namespace Shop;\n    if (subtotal <= 0)\n    {\n        return 0;\n    }\n"
+
+
+def stryker_mutant(line, col, end_line, end_col, status, mutator="Equality mutation", replacement="x", reason=None):
+    m = {"id": "1", "mutatorName": mutator, "replacement": replacement, "status": status,
+         "location": {"start": {"line": line, "column": col}, "end": {"line": end_line, "column": end_col}}}
+    if reason:
+        m["statusReason"] = reason
+    return m
+
+
+class StrykerReport(Temp):
+    def report(self, mutants, path="Shop/Pricing.cs"):
+        return {"schemaVersion": "2", "files": {os.path.join(self.root, *path.split("/")):
+                                                {"language": "cs", "source": SOURCE, "mutants": mutants}}}
+
+    def test_status_mapping_and_original_text(self):
+        statuses = ["Killed", "Timeout", "Survived", "NoCoverage", "CompileError", "RuntimeError", "Ignored"]
+        mutants = csharp.mutants_from_report(self.report([stryker_mutant(2, 9, 2, 22, s, replacement="subtotal < 0")
+                                                          for s in statuses]), self.root)
+        self.assertEqual([m["status"] for m in mutants],
+                         ["KILLED", "TIMED_OUT", "LIVED", "NOT_COVERED", "NOT_VIABLE", "NOT_VIABLE", "SKIPPED"])
+        self.assertEqual(mutants[0], {"file": "Shop/Pricing.cs", "line": 2, "column": 9, "mutator": "Equality mutation",
+                                      "status": "KILLED", "original": "subtotal <= 0", "replacement": "subtotal < 0"})
+        sheets.parse_mutants({"schema": sheets.MUTANTS_SCHEMA, "mutants": mutants})
+
+    def test_multi_line_original(self):
+        mutants = csharp.mutants_from_report(self.report([stryker_mutant(3, 5, 5, 6, "Survived", "Block removal mutation", "{}")]),
+                                             self.root)
+        self.assertEqual(mutants[0]["original"], "{\n        return 0;\n    }")
+
+    def test_mutate_filter_dropped_but_other_ignored_kept(self):
+        mutants = csharp.mutants_from_report(self.report([
+            stryker_mutant(2, 9, 2, 22, "Ignored", reason=csharp.MUTATE_FILTER_REASON),
+            stryker_mutant(2, 9, 2, 22, "Ignored", reason="Removed by block already covered filter"),
+        ]), self.root)
+        self.assertEqual([m["status"] for m in mutants], ["SKIPPED"])
+
+    def test_unknown_status_is_an_error(self):
+        with self.assertRaisesRegex(csharp.InspectorError, "Pending"):
+            csharp.mutants_from_report(self.report([stryker_mutant(2, 9, 2, 22, "Pending")]), self.root)
+
+    def test_files_outside_project_are_skipped(self):
+        outside = os.path.join(os.path.dirname(self.root), "elsewhere", "X.cs")
+        report = {"files": {outside: {"source": SOURCE, "mutants": [stryker_mutant(2, 9, 2, 22, "Killed")]}}}
+        self.assertEqual(csharp.mutants_from_report(report, self.root), [])
+
+    def test_span_out_of_range_has_no_original(self):
+        mutants = csharp.mutants_from_report(self.report([stryker_mutant(99, 1, 99, 2, "Killed")]), self.root)
+        self.assertNotIn("original", mutants[0])
+
+    def test_mutate_patterns(self):
+        self.assertEqual(csharp.mutate_patterns(["Shop/Pricing.cs"]), ["**/Shop/Pricing.cs"])
+        self.assertEqual(csharp.mutate_patterns([]), [])
+
+
+class WindowsPathLimit(unittest.TestCase):
+    def test_limit(self):
+        self.assertFalse(csharp.too_long_for_windows("C:\\" + "a" * 256, is_windows=True))  # 259 字元
+        self.assertTrue(csharp.too_long_for_windows("C:\\" + "a" * 257, is_windows=True))
+        self.assertFalse(csharp.too_long_for_windows("/" + "a" * 400, is_windows=False))
+
+
 @unittest.skipUnless(shutil.which("dotnet"), "沒有 dotnet，略過建置工具的隔離測試")
 class BuildIsolation(Temp):
     """上層目錄放惡意設定檔：沒有隔離檔時建置要失敗（反向對照），有隔離檔時建置要成功。"""

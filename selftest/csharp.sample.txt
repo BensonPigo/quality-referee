@@ -7,7 +7,7 @@ obj/
 {
   "version": 1,
   "base": "origin/main",
-  "gates": ["test", "crap"],
+  "gates": ["test", "crap", "mutation"],
   "sources": ["**/*.cs"],
   "tests": ["**/*.Tests/**"],
   "exclude": ["tools/"],
@@ -15,6 +15,11 @@ obj/
   "crap": {
     "threshold": 12,
     "inspector": ["{python}", "{csharp_inspector}", "functions"]
+  },
+  "mutation": {
+    "kill_rate_threshold": 80,
+    "reach_rate_threshold": 0,
+    "inspector": ["{python}", "{csharp_inspector}", "mutants"]
   }
 }
 
