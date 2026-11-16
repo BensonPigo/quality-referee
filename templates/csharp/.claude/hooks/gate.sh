@@ -14,8 +14,13 @@ cd "$CLAUDE_PROJECT_DIR" || exit 0
 # Windows 的 python3 可能是開啟 Microsoft Store 的空殼，要真的能執行才用
 if python3 -c '' 2>/dev/null; then py=python3; else py=python; fi
 
-# 比較基準讀 .referee.json 的 base，環境變數 REFEREE_BASE 可以覆蓋
-base="${REFEREE_BASE:-$("$py" -c 'import json; print(json.load(open(".referee.json", encoding="utf-8")).get("base", "origin/main"))')}"
+# 比較基準讀 .referee.json 的 base，環境變數 REFEREE_BASE 可以覆蓋。
+# 設定檔讀不到（被刪掉、不是合法的 JSON）要擋下：放行的話，弄壞設定檔就等於關掉檢查
+base="${REFEREE_BASE:-$("$py" -c 'import json; print(json.load(open(".referee.json", encoding="utf-8-sig")).get("base", "origin/main"))' 2>/dev/null)}"
+if [ -z "$base" ]; then
+	echo '讀不到 .referee.json（檔案不在，或不是合法的 JSON），沒辦法做品質檢查。請還原設定檔，不要刪除或修改它。' >&2
+	exit 2
+fi
 
 # 找不到 base（例如還沒 fetch）就不檢查，CI 還會再擋一次
 git merge-base "$base" HEAD >/dev/null 2>&1 || exit 0

@@ -64,7 +64,7 @@ def _key(file, mutator, line_text):
 
 
 def apply(mutants, entries, universe=None, scope=None):
-    """把對得上排除清單的改壞版本標成 EQUIVALENT，回傳沒用到的項目（清單原樣）。
+    """把對得上排除清單的改壞版本（mutants 和 universe 都標）標成 EQUIVALENT，回傳沒用到的項目（清單原樣）。
 
     universe 是這次量到的全部改壞版本（含 --base 篩掉的），沒給就用 mutants；對得上 universe 的項目都算有用到。
     scope 是這次量測範圍內的檔案集合，「沒用到」只算 file 在 scope 裡的項目：--base 時沒改到的檔案不在範圍內，
@@ -87,7 +87,7 @@ def apply(mutants, entries, universe=None, scope=None):
     used = set()
     for m in universe:
         used.update(matches(m))
-    for m in mutants:
+    for m in list(mutants) + list(universe):
         if matches(m):
             m.status = EQUIVALENT
 

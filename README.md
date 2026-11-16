@@ -4,7 +4,7 @@
 
 1. 單元測試：`test.command` 結束碼 0 才算過。
 2. CRAP：改到的函式，複雜度和覆蓋率算出來的 CRAP 不能超過門檻。
-3. 抓錯檢查：把程式改壞一點，測試要抓得到。改到的行上，抓錯率和測到率要達到門檻。
+3. 抓錯檢查：把程式改壞一點，測試要抓得到。改到的行上，抓錯率和測到率要達到門檻；改到的每個函式至少要有一個改壞的版本被抓到。
 
 各語言的量測做法放在「檢查員」裡。目前有 Go（`inspectors/go.py`）和 C#（`inspectors/csharp.py`，SDK 風格的 .NET 6 以上）的標準檢查員；其他語言，或專案想用自己的量法，寫一支照 [docs/合約.md](docs/合約.md) 交出記分表的腳本，換掉設定檔裡的指令就可以。
 
@@ -33,7 +33,7 @@
 - **檢查員**（標準的或自訂的都一樣）：只回報量到什麼。函式的複雜度、起訖行、覆蓋率；每個改壞版本在哪一行哪一欄、改了什麼、有沒有被測試抓到。量測失敗時結束碼不是 0，裁判會停下並印出檢查員的輸出。
 - **人**：裁判只判斷數字。測試寫得對不對、排除的理由成不成立，要人看。
 
-兩種 JSON 不要搞混：**記分表**是檢查員填、給裁判讀的；**報告**（`referee.report/1`）是裁判寫、給人和 CI 讀的。檢查員不碰報告，所以不管專案用哪個檢查員，判定規則和報告格式都一樣，不同專案的分數可以互相比較。
+兩種 JSON 不要搞混：**記分表**是檢查員填、給裁判讀的；**報告**（`referee.report/2`）是裁判寫、給人和 CI 讀的。檢查員不碰報告，所以不管專案用哪個檢查員，判定規則和報告格式都一樣，不同專案的分數可以互相比較。
 
 ## 安裝到專案
 
@@ -47,6 +47,9 @@ mkdir -p .claude/hooks .github/workflows
 cp tools/referee/templates/go/.claude/settings.json .claude/
 cp tools/referee/templates/go/.claude/hooks/gate.sh .claude/hooks/
 cp tools/referee/templates/go/workflows/go.yml .github/workflows/referee.yml
+mkdir -p .claude/skills
+cp -r tools/referee/templates/go/.claude/skills/referee-onboard .claude/skills/
+cp tools/referee/templates/go/CLAUDE.md .
 ```
 
 C# 專案把上面的 `templates/go` 換成 `templates/csharp`，最後一行換成：
@@ -57,12 +60,20 @@ cp tools/referee/templates/csharp/workflows/csharp.yml .github/workflows/referee
 
 範本裡除了 workflow 都是點開頭的檔案（`.referee.json`、`.claude/` 等），`ls` 或 `ls -R` 看不到，要用 `ls -a`。
 
-`.claude/settings.json` 和 `gate.sh` 兩個語言的範本一模一樣。用 Gitea 的話，workflow 放 `.gitea/workflows/referee.yml`。接著：
+`.claude/settings.json`、`gate.sh`、`.claude/skills/referee-onboard/`、`CLAUDE.md` 兩個語言的範本一模一樣。專案原本已有 `CLAUDE.md` 時，把範本的內容加進去，不要整份覆蓋。用 Gitea 的話，workflow 放 `.gitea/workflows/referee.yml`。接著：
 
 1. 打開 `.referee.json`，依專案調整（見下一節）。
 2. 專案裡有掃整個 repo 的檢查（例如掃全部 `.md` 連結、掃全部原始碼風格的測試）時，**把 `tools/referee/` 加進豁免**。submodule 裡有這個工具自己的文件和程式，不是專案的內容。
 3. 範本的 `.claude/settings.json` 把 `.referee.json`、`.referee-equivalents.json`、`.gitmodules`、`tools/referee/**`、`.github/**`、`.gitea/**`、`.claude/**` 設成 Claude Code 的編輯工具不能改，避免 AI 靠改門檻或設定讓檢查通過。專案原本已有 `.claude/settings.json` 時，合併 `permissions.deny` 和 `hooks.Stop`，不要整份覆蓋。
 4. 其他人 clone 專案時要加 `--recurse-submodules`，或 clone 之後執行 `git submodule update --init`。
+
+## 讓 AI 建立測試
+
+專案還沒有測試，或舊程式要補測試時，可以交給 AI 做。範本的 `CLAUDE.md` 寫了平常改程式要守的規則；`.claude/skills/referee-onboard/` 是 Claude Code 的 skill，請 AI「替這個專案建立三道品質關」時會用到。兩者都指向 [docs/AI導入指引.md](docs/AI導入指引.md)，用別的 AI 工具時，直接請它讀 `tools/referee/docs/AI導入指引.md`。
+
+指引要 AI 做的事：量整個專案的現況、建立測試骨架、照 CRAP 的表由上往下補測試、用抓錯檢查確認測試抓得到錯。測試寫不出來時（函式太大、直接碰時鐘或檔案系統、沒有依賴反轉），AI 要停下來回報程式結構的問題，不能硬測。
+
+人還是要看 AI 寫的測試。替舊程式補的測試記錄的是現有的行為，現有的錯誤也會被當成正確答案；指引要求 AI 把這種測試標出來，審的時候先看這些。
 
 ## 日常使用
 
@@ -77,8 +88,8 @@ python tools/referee/referee.py check --base origin/main --skip mutation --json 
 |---|---|
 | `test [--json 檔]` | 第一關，執行 `test.command` |
 | `crap [--base B] [--json 檔]` | 第二關。有 `--base` 只檢查改到的函式，沒給就檢查整個專案。超標的函式後面附改善方向：「要拆函式」或「覆蓋率要到 X%」 |
-| `mutation [--base B] [--json 檔]` | 第三關。有 `--base` 只算改到的行 |
-| `check [--base B] [--skip 關...] [--json 目錄]` | 依 `gates` 的順序跑，第一個沒過就停，印出「停在第 N 關」。`--json` 每一關寫一份：`test.json`、`crap.json`、`mutation.json` |
+| `mutation [--base B] [--json 檔]` | 第三關。有 `--base` 只算改到的行、只看改到的函式。除了兩個比例，每個函式至少要有一個改壞的版本被抓到，不然列出來並判沒過 |
+| `check [--base B] [--skip 關...] [--json 目錄]` | 已啟用的關依 test → crap → mutation 的順序跑，第一個沒過就停，印出「停在第 N 關」。`--json` 每一關寫一份：`test.json`、`crap.json`、`mutation.json` |
 
 結束碼：0 通過，1 沒過門檻，2 量測失敗或設定有誤。沒啟用（不在 `gates` 裡）的關印「還沒啟用」並以 0 結束。
 
@@ -92,18 +103,20 @@ python tools/referee/referee.py check --base origin/main --skip mutation --json 
 |---|---|---|
 | `version` | 必填 | 固定是 `1` |
 | `base` | `origin/main` | `check` 沒給 `--base` 時的比較基準，gate.sh 也讀它 |
-| `gates` | `["test", "crap", "mutation"]` | 要啟用的關，順序就是 `check` 的執行順序 |
+| `gates` | `["test", "crap", "mutation"]` | 要啟用的關，至少一個。`check` 的執行順序固定是 test → crap → mutation，跟這裡寫的順序無關 |
 | `sources` | `[]` | 原始碼樣式，例如 `["**/*.go"]`。有 `crap` 或 `mutation` 時至少要一個 |
 | `tests` | `[]` | 測試檔樣式，例如 `["**/*_test.go"]`。符合的檔案不算原始碼 |
 | `exclude` | `[]` | 整個跳過的目錄，例如 `["vendor/", "tools/"]` |
 | `test.command` | 啟用 `test` 時必填 | 字串陣列，不經過 shell |
-| `crap.threshold` | `12` | CRAP 上限 |
+| `crap.threshold` | `12` | CRAP 上限。各專案可以訂得更嚴，最寬只能到 `30`，超過是結束碼 2 |
 | `crap.inspector` | 啟用 `crap` 時必填 | 檢查員指令（字串陣列） |
-| `mutation.kill_rate_threshold` | `80` | 抓錯率下限（%） |
-| `mutation.reach_rate_threshold` | `50` | 測到率下限（%）。沒有這個門檻的話，新寫的程式完全沒有測試也能過關 |
+| `mutation.kill_rate_threshold` | `80` | 抓錯率下限（%），0 到 100 |
+| `mutation.reach_rate_threshold` | `50` | 測到率下限（%），0 到 100。沒有這個門檻的話，新寫的程式完全沒有測試也能過關。改到的行上沒有任何改壞版本時（例如只回傳一個變數的函式），兩個比例都不判定 |
 | `mutation.exclude_mutators` | `[]` | 整類不檢查的改壞方式，名稱照檢查員回報的 `mutator` |
 | `mutation.equivalents_file` | `.referee-equivalents.json` | 「改了也沒差」的排除清單 |
 | `mutation.inspector` | 啟用 `mutation` 時必填 | 檢查員指令 |
+
+第三關「每個函式至少抓到一個」沒有門檻可以調：一個函式有可以改壞的地方，卻沒有任何一個改壞的版本被測試抓到，就是沒有測試在驗證它。它要靠 `crap.inspector` 取得函式的範圍，所以第三關會多跑一次這個檢查員；沒設定 `crap.inspector` 時不做這項檢查，輸出會寫明。本來就不寫單元測試的程式（例如只負責組裝和啟動的進入點），放在 `exclude` 的目錄裡。
 
 `sources`、`tests`、`exclude` 的比對規則（`*`、`**/`、目錄比對）寫在 [docs/合約.md](docs/合約.md)。裁判拿到記分表後會再依這三項篩一次，檢查員多交的項目不影響結果。
 
@@ -123,6 +136,7 @@ python tools/referee/referee.py check --base origin/main --skip mutation --json 
 `.claude/hooks/gate.sh` 在 AI 要結束對話時跑第一、二關（`check --base <base> --skip mutation`）。沒過就以結束碼 2 擋下結束，把訊息交回 AI 繼續修。行為：
 
 - base 讀 `.referee.json` 的 `base`，環境變數 `REFEREE_BASE` 可以覆蓋。
+- 讀不到 `.referee.json`（檔案不在，或不是合法的 JSON），擋下。
 - 找不到 base（例如還沒 fetch），放行，CI 會再擋一次。
 - 這次沒有改任何東西，放行。
 - 有改東西但 `tools/referee/referee.py` 不在（submodule 沒抓），擋下並提示 `git submodule update --init`。
@@ -152,6 +166,7 @@ python tools/referee/inspectors/go.py functions|mutants [--coverage-scope packag
 - `--workers N`：gremlins 同時跑幾個，沒給就用 gremlins 的預設值。只對 `mutants` 有用，`functions` 不跑 gremlins。
 - gocyclo、gremlins（都是 v0.6.0）第一次執行時用 `go install` 裝到 `REFEREE_TOOLS_DIR`（預設 `~/.cache/quality-referee`），之後直接執行，斷網也能量。
 - 要跳過的目錄寫在 `.referee.json` 的 `exclude`，檢查員從 context 讀，不用在 `inspector` 指令再寫一次。
+- 因為 build constraint 在這個平台不編譯的檔案（例如 Linux 上的 `*_windows.go`），`mutants` 不產生改壞的版本。gremlins 本來會產生，但測試一定跑不到，補測試也沒有用。
 - 記分表的 `tools` 寫兩個工具的版本，`settings` 寫實際生效的設定（`functions` 只有 `coverage_scope`，`mutants` 有 `coverage_scope` 和 `workers`），會進 JSON 報告。
 
 範本的 `crap.inspector` 沒有帶 `--coverage-scope`，用 package 範圍。專案的測試分散在別的套件時，兩個 inspector 都加 `"--coverage-scope", "module"`。
@@ -181,6 +196,11 @@ python tools/referee/inspectors/csharp.py mutants   [--target 方案或專案檔
 - `.claude/settings.json` 的 `Edit(...)` 規則只擋 Claude Code 的編輯工具，擋不住 AI 用 Bash 改檔，而且只在這個 repo 開的對話生效，在別的目錄開的對話改這個 repo 的檔案不受限制。要確保門檻不被改，要靠 CI 和 CODEOWNERS 之類的審查。
 - 整個專案掃描式的測試（掃全部文件、全部原始碼）會掃到 `tools/referee/`，要照上面的安裝步驟加豁免。
 - 覆蓋率跟執行的平台有關。測試檔有 build constraint（例如 `//go:build !windows`）時，那些測試在別的平台不會跑，被它們測到的函式覆蓋率就不同，CRAP 也跟著不同。例如 BeThere 的 serve 測試在 Windows 上不跑，同一個 base 下，沒改到但超標的函式在本機 Windows 是 31 個，在 CI 的 ubuntu 是 30 個。以 CI 的結果為準。
+- 抓錯率和測到率是所有改到的行合起來算的比例。一個函式完全沒被測到時，比例可能照樣過門檻，這種情況由「每個函式至少抓到一個」擋下。但這條規則只要求一個：函式只測了一條路徑、或測試沒有斷言但改壞後剛好當掉或逾時，都算抓到。測試夠不夠還是要靠兩個比例和人看。
+- 「每個函式至少抓到一個」只在第三關判定，gate.sh 不跑第三關，AI 結束對話時擋不到，要等 CI。
+- 不在任何函式範圍裡的程式（套件層的變數初始化、C# 的頂層陳述式）不參與「每個函式至少抓到一個」。Go 檢查員找函式結尾的方式是找單獨一行的 `}`，函式裡的原始字串剛好有這樣一行時，範圍會提早結束，後面的改壞版本就不算在這個函式裡。
+- Go 檢查員用預設的 package 範圍時，只被別的套件的測試跑到的函式，改壞的版本都是「測試沒跑到」，會被判成沒有測試。兩個 `inspector` 都改用 `--coverage-scope module`。
+- 完全沒有測試的專案，第一關會通過：`go test ./...`、`dotnet test` 在沒有任何測試時結束碼是 0。
 - 「新寫的程式沒附測試」不一定會被第二關擋下。新程式如果在既有測試會走到的路徑上，覆蓋率一開始就是 100%，CRAP 只看複雜度。這時要靠第三關的抓錯率，看既有測試有沒有真的驗證新程式的行為。
 
 C# 檢查員：
@@ -228,3 +248,7 @@ selftest 的 gate.sh 情境把這個 repo 的 `git ls-files` 複製到範例的 
 - C# 檢查員在 .NET 6～9 的 SDK 上還沒跑過（selftest 用 .NET 10）。
 - CI 實際擋下 PR（結束碼 1 讓 workflow 失敗）還沒在 runner 上發生過。判定和結束碼跟本機相同，本機和 selftest 都驗證過結束碼 1；workflow 的每個步驟都是直接執行裁判的指令，結束碼不是 0 時，GitHub Actions 會讓那一步失敗。
 - Gitea 的 act_runner 支不支援範本用的 v7 actions（Node 24）。
+
+## 授權
+
+[MIT](LICENSE)。

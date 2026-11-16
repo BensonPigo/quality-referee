@@ -66,6 +66,24 @@ class ConfigTests(unittest.TestCase):
         fails(self, with_(mutation={"exclude_mutators": "A", "inspector": ["x"]}), "exclude_mutators")
         fails(self, with_(mutation={"equivalents_file": "", "inspector": ["x"]}), "equivalents_file")
 
+    def test_crap_threshold_cannot_be_looser_than_30(self):
+        self.assertEqual(config.validate(with_(crap={"threshold": 30, "inspector": ["x"]}))["crap"]["threshold"], 30)
+        fails(self, with_(crap={"threshold": 30.1, "inspector": ["x"]}), "crap.threshold 必須大於 0、不能超過 30")
+        fails(self, with_(crap={"threshold": 1e9, "inspector": ["x"]}), "crap.threshold 必須大於 0、不能超過 30")
+        fails(self, with_(crap={"threshold": 0, "inspector": ["x"]}), "crap.threshold 必須大於 0、不能超過 30")
+        fails(self, with_(crap={"threshold": float("nan"), "inspector": ["x"]}), "crap.threshold 必須大於 0、不能超過 30")
+
+    def test_mutation_thresholds_are_percentages(self):
+        cfg = config.validate(with_(mutation={"kill_rate_threshold": 0, "reach_rate_threshold": 100, "inspector": ["x"]}))
+        self.assertEqual(cfg["mutation"]["kill_rate_threshold"], 0)
+        for key in ("kill_rate_threshold", "reach_rate_threshold"):
+            for bad in (-5, 100.5, float("nan")):
+                fails(self, with_(mutation={key: bad, "inspector": ["x"]}),
+                      "mutation.{} 必須在 0 到 100 之間".format(key))
+
+    def test_gates_cannot_be_empty(self):
+        fails(self, with_(gates=[]), "gates 至少要啟用一關")
+
     def test_inspector_must_be_argv_array(self):
         fails(self, with_(crap={"inspector": "python x.py"}), "crap.inspector 必須是")
         fails(self, with_(crap={"inspector": []}), "crap.inspector 必須是")

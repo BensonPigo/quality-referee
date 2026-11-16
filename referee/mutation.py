@@ -3,6 +3,9 @@
 抓錯率 = (抓到 + 逾時) ÷ (抓到 + 逾時 + 沒抓到)：有測到的改壞版本裡，抓到幾成。
 測到率 = (抓到 + 逾時 + 沒抓到) ÷ (抓到 + 逾時 + 沒抓到 + 測試沒跑到)：全部改壞版本裡，有幾成被測試跑到。
 已排除（改了也沒差、設定排除的改法）、無效、略過，都不算進這兩個比例。
+
+兩個比例是整體的：一個函式完全沒被測到，其他函式測得夠多時比例還是會過。所以另外逐一看函式：
+函式裡有算進比例的改壞版本，卻一個都沒被抓到，就是這個函式沒有測試在驗證它（undetected_functions）。
 """
 
 import os
@@ -44,6 +47,24 @@ def judge(counts, cfg):
     if r is not None and r < m["reach_rate_threshold"]:
         problems.append("測到率低於門檻：有改到的程式碼沒有測試")
     return problems
+
+
+def undetected_functions(funcs, mutants):
+    """有算進比例的改壞版本、卻一個都沒被抓到的函式，依檔案和起始行排序。
+
+    改壞版本依檔案和行號歸到函式；函式的行範圍重疊時，每個包含那一行的函式都算。
+    沒有可算的改壞版本的函式（沒有可以改的地方，或全部被排除）不判定。
+    """
+    by_file = defaultdict(list)
+    for m in mutants:
+        by_file[m.file].append(m)
+    found = []
+    for f in funcs:
+        counts = count([m for m in by_file.get(f.file, ()) if f.start <= m.line <= f.end])
+        if counts[LIVED] + counts[NOT_COVERED] > 0 and detected(counts) == 0:
+            found.append((f, counts))
+    found.sort(key=lambda fc: (fc[0].file, fc[0].start))
+    return [f for f, _ in found]
 
 
 def package_of(file):

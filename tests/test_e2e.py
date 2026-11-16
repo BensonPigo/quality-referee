@@ -95,6 +95,8 @@ class E2E(TempDirMixin, unittest.TestCase):
 
     def run_cli(self, args, crap=None, mutation=None, **env):
         e = {"FAKE_OUT_DIR": self.out}
+        if crap is None:
+            crap = functions_sheet([])  # 第三關也會取函式表；沒指定時交一張空的
         if crap is not None:
             dump(os.path.join(self.out, "crap-sheet.json"), crap)
             e["FAKE_SHEET_CRAP"] = os.path.join(self.out, "crap-sheet.json")
@@ -239,7 +241,8 @@ class E2E(TempDirMixin, unittest.TestCase):
         self.assertEqual(rep["inspector"], {"command": [PY, FAKE, "mutation"], "tools": {"gremlins": "v0.6.0"},
                                             "settings": {"workers": 4}})
         self.assertEqual((rep["schema"], rep["referee_version"], rep["command"], rep["result"]),
-                         ("referee.report/1", __version__, "mutation", "pass"))
+                         ("referee.report/2", __version__, "mutation", "pass"))
+        self.assertEqual(rep["mutation"]["undetected_functions"], [])
         self.assertIsNone(rep["crap"])
         pk = rep["mutation"]["packages"]
         self.assertEqual(sorted(pk), [".", "other", "shipping"])
@@ -333,6 +336,71 @@ class E2E(TempDirMixin, unittest.TestCase):
         self.assertIn("FAIL：抓錯率低於門檻", out)
         self.assertEqual(self.report()["result"], "fail")
 
+    # ---------- 每個函式至少抓到一個改壞版本 ----------
+
+    FUNCS = functions_sheet([fn("main.go", "Main", 1, 5, 2, 1.0), fn("shipping/fee.go", "Fee", 3, 9, 3, 0.75),
+                             fn("other/old.go", "Old", 1, 10, 3, 0.0)])
+
+    def test_function_with_no_detected_mutant_fails_even_when_rates_pass(self):
+        sheet = mutants_sheet(MUTANTS["mutants"][:4] + [mu("other/old.go", 3, "NOT_COVERED"),
+                                                       mu("other/old.go", 4, "NOT_COVERED")])
+        code, out, err = self.run_cli(["mutation", "--json", self.json_path()], crap=self.FUNCS, mutation=sheet)
+        self.assertEqual(code, 1, out + err)
+        self.assertIn("抓錯率：75.00%（門檻 60%）", out)
+        self.assertIn("測到率：66.67%（門檻 50%）", out)
+        self.assertIn("other/old.go:1  Old（沒抓到 0、測試沒跑到 2）", out)
+        self.assertIn("FAIL：有 1 個函式沒有任何改壞的版本被測試抓到", out)
+        self.assertNotIn("FAIL：抓錯率", out)
+        rep = self.report()
+        self.assertEqual(rep["result"], "fail")
+        self.assertEqual(rep["mutation"]["undetected_functions"],
+                         [{"file": "other/old.go", "name": "Old", "start": 1, "end": 10}])
+
+    def test_with_base_only_touched_functions_are_judged_using_all_their_mutants(self):
+        # Fee 改到第 4、5 行：改到的行上只有一個沒抓到的，但同一個函式第 9 行（沒改到）有抓到，不算沒測試。
+        # Old 沒改到，就算一個都沒抓到也不判定。
+        self.config({"mutation": {"kill_rate_threshold": 0, "inspector": [PY, FAKE, "mutation"]}})
+        sheet = mutants_sheet([mu("shipping/fee.go", 5, "LIVED"), mu("shipping/fee.go", 9, "KILLED"),
+                               mu("other/old.go", 3, "NOT_COVERED")])
+        code, out, err = self.run_cli(["mutation", "--base", "main", "--json", self.json_path()],
+                                      crap=self.FUNCS, mutation=sheet)
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.report()["mutation"]["undetected_functions"], [])
+        # 整個函式都沒抓到：沒過
+        sheet = mutants_sheet([mu("shipping/fee.go", 5, "LIVED"), mu("shipping/fee.go", 9, "NOT_COVERED")])
+        code, out, err = self.run_cli(["mutation", "--base", "main", "--json", self.json_path()],
+                                      crap=self.FUNCS, mutation=sheet)
+        self.assertEqual(code, 1, out + err)
+        self.assertIn("shipping/fee.go:3  Fee（沒抓到 1、測試沒跑到 1）", out)
+        self.assertEqual([f["name"] for f in self.report()["mutation"]["undetected_functions"]], ["Fee"])
+
+    def test_approved_equivalent_on_an_unchanged_line_is_not_counted_against_the_function(self):
+        entry = {"file": "shipping/fee.go", "mutator": "CONDITIONALS_BOUNDARY", "line_text": "line 9",
+                 "reason": "r", "approved_by": "me"}
+        dump(os.path.join(self.root, ".referee-equivalents.json"), [entry])
+        self.addCleanup(os.remove, os.path.join(self.root, ".referee-equivalents.json"))
+        sheet = mutants_sheet([mu("shipping/fee.go", 9, "LIVED")])
+        code, out, err = self.run_cli(["mutation", "--base", "main", "--json", self.json_path()],
+                                      crap=self.FUNCS, mutation=sheet)
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.report()["mutation"]["undetected_functions"], [])
+
+    def test_rule_is_not_applied_without_a_function_inspector(self):
+        self.config({"crap": {}}, gates=["test", "mutation"])
+        sheet = mutants_sheet(MUTANTS["mutants"][:4] + [mu("other/old.go", 3, "NOT_COVERED")])
+        code, out, err = self.run_cli(["mutation", "--json", self.json_path()], crap=self.FUNCS, mutation=sheet)
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("沒有設定 crap.inspector", out)
+        self.assertIsNone(self.report()["mutation"]["undetected_functions"])
+        self.assertFalse(os.path.exists(os.path.join(self.out, "ctx-crap.json")))
+
+    def test_function_inspector_failure_in_mutation_gate_is_exit_2(self):
+        self.config({"crap": {"inspector": [PY, "-c", "import sys; print('boom'); sys.exit(3)"]}})
+        code, out, err = self.run_cli(["mutation"], mutation=MUTANTS)
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("量測失敗", err)
+        self.assertFalse(os.path.exists(os.path.join(self.out, "ctx-mutation.json")))  # 先取函式表，失敗就不跑抓錯檢查
+
     # ---------- 還沒啟用 ----------
 
     def test_gate_not_in_gates_prints_not_enabled_and_writes_skipped_report(self):
@@ -416,6 +484,8 @@ class E2E(TempDirMixin, unittest.TestCase):
     def test_inspector_nonzero_exit(self):
         for gate, kw in (("crap", {"crap": CRAP_NOBASE}), ("mutation", {"mutation": MUTANTS})):
             with self.subTest(gate=gate):
+                if gate == "mutation":  # 不設函式表檢查員，才輪得到抓錯檢查的檢查員失敗
+                    self.config({"crap": {}}, gates=["test", "mutation"])
                 code, out, err = self.run_cli([gate], FAKE_EXIT="3", **kw)
                 self.assertEqual(code, 2)
                 self.assertIn("量測失敗，結束碼 3", err)
@@ -425,6 +495,7 @@ class E2E(TempDirMixin, unittest.TestCase):
         code, out, err = self.run_cli(["crap"], crap=CRAP_NOBASE, FAKE_NOWRITE="1")
         self.assertEqual(code, 2)
         self.assertIn("沒有寫出函式表", err)
+        self.config({"crap": {}}, gates=["test", "mutation"])
         code, out, err = self.run_cli(["mutation"], mutation=MUTANTS, FAKE_NOWRITE="1")
         self.assertEqual(code, 2)
         self.assertIn("沒有寫出改壞版本表", err)

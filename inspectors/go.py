@@ -211,6 +211,17 @@ def go_packages(exclude, module):
     return pkgs
 
 
+def ignored_files(d):
+    """套件目錄 d 底下、因為 build constraint 在這個平台不編譯的 .go 檔名。
+
+    gremlins 照樣會對這些檔案產生改壞的版本，但測試一定跑不到，全部算成 NOT COVERED，補測試也沒有用，所以不產生。
+    """
+    r = run(["go", "list", "-f", "{{range .IgnoredGoFiles}}{{.}}\n{{end}}", "./" + d])
+    if r.returncode != 0:
+        raise InspectorError("go list 執行失敗（{}）：\n{}".format(d, r.stderr))
+    return r.stdout.split()
+
+
 def subdirs(d):
     """套件目錄底下的子目錄名稱，gremlins_args 轉成 -E 的樣式。"""
     return [sub for sub in sorted(os.listdir(d)) if os.path.isdir(os.path.join(d, sub))]
@@ -323,6 +334,10 @@ def measure_mutants(ctx, scope, workers):
         skip = unchanged_files(d, changed, os.listdir(d)) if changed is not None else []
         if skip:
             log("只對改到的檔案產生改壞的版本，略過 {} 個沒改到的檔案".format(len(skip)))
+        ignored = ignored_files(d)
+        if ignored:
+            log("略過 {} 個在這個平台不編譯的檔案：{}".format(len(ignored), "、".join(ignored)))
+            skip = sorted(set(skip) | set(ignored))
         with tempfile.TemporaryDirectory() as tmp:
             out = os.path.join(tmp, "gremlins.json")
             r = run(gremlins + gremlins_args(workers, d, out, subdirs(d), skip, coverpkg),

@@ -182,5 +182,55 @@ class EquivalentsTests(TempDirMixin, unittest.TestCase):
         self.assertEqual([m.line_text for m in ms], ["one", "two", "", ""])
 
 
+
+class UndetectedFunctions(unittest.TestCase):
+    """每個函式至少要有一個改壞版本被抓到。"""
+
+    def names(self, funcs, mutants):
+        return [f.name for f in mutation.undetected_functions(funcs, mutants)]
+
+    def test_function_with_mutants_but_none_detected(self):
+        funcs = [Function("a.go", "Untested", 1, 5, 3, 0.0), Function("a.go", "NoAssert", 6, 9, 2, 1.0),
+                 Function("a.go", "Tested", 10, 20, 2, 1.0)]
+        ms = [Mutant("a.go", 2, NOT_COVERED, "M"), Mutant("a.go", 3, NOT_COVERED, "M"),
+              Mutant("a.go", 7, LIVED, "M"),
+              Mutant("a.go", 11, KILLED, "M"), Mutant("a.go", 12, LIVED, "M"), Mutant("a.go", 13, NOT_COVERED, "M")]
+        self.assertEqual(self.names(funcs, ms), ["Untested", "NoAssert"])
+
+    def test_timeout_counts_as_detected(self):
+        self.assertEqual(self.names([Function("a.go", "F", 1, 5, 1, 0.0)], [Mutant("a.go", 2, TIMED_OUT, "M")]), [])
+
+    def test_function_without_countable_mutants_is_not_judged(self):
+        funcs = [Function("a.go", "Empty", 1, 2, 1, 0.0), Function("a.go", "AllExcluded", 3, 9, 1, 0.0)]
+        ms = [Mutant("a.go", 4, EQUIVALENT, "M"), Mutant("a.go", 5, EXCLUDED_MUTATOR, "M"),
+              Mutant("a.go", 6, NOT_VIABLE, "M"), Mutant("a.go", 7, SKIPPED, "M")]
+        self.assertEqual(self.names(funcs, ms), [])
+
+    def test_mutants_are_matched_by_file_and_line_range(self):
+        funcs = [Function("a.go", "A", 1, 5, 1, 0.0), Function("b.go", "B", 1, 5, 1, 0.0)]
+        ms = [Mutant("b.go", 3, KILLED, "M"), Mutant("a.go", 6, KILLED, "M"), Mutant("a.go", 5, LIVED, "M")]
+        self.assertEqual(self.names(funcs, ms), ["A"])
+
+    def test_overlapping_ranges_count_the_mutant_for_every_function_containing_it(self):
+        funcs = [Function("a.go", "Outer", 1, 10, 1, 0.0), Function("a.go", "Inner", 3, 5, 1, 0.0)]
+        self.assertEqual(self.names(funcs, [Mutant("a.go", 4, KILLED, "M"), Mutant("a.go", 8, LIVED, "M")]), [])
+        self.assertEqual(self.names(funcs, [Mutant("a.go", 4, LIVED, "M"), Mutant("a.go", 8, KILLED, "M")]), ["Inner"])
+
+    def test_sorted_by_file_then_line(self):
+        funcs = [Function("b.go", "B", 1, 5, 1, 0.0), Function("a.go", "A2", 6, 9, 1, 0.0), Function("a.go", "A1", 1, 5, 1, 0.0)]
+        ms = [Mutant("b.go", 2, LIVED, "M"), Mutant("a.go", 7, LIVED, "M"), Mutant("a.go", 2, LIVED, "M")]
+        self.assertEqual(self.names(funcs, ms), ["A1", "A2", "B"])
+
+
+class EquivalentsUniverse(unittest.TestCase):
+    def test_universe_is_marked_too(self):
+        # --base 時 mutants 只有改到的行；同一個函式沒改到的行上，已核准排除的版本也要標成 EQUIVALENT，
+        # 不然「每個函式至少抓到一個」會把它當成沒抓到
+        entry = {"file": "a.go", "mutator": "M", "line_text": "x", "reason": "r", "approved_by": "me"}
+        changed, other = Mutant("a.go", 1, LIVED, "M", line_text="x"), Mutant("a.go", 9, LIVED, "M", line_text="x")
+        equivalents.apply([changed], [entry], universe=[changed, other], scope={"a.go"})
+        self.assertEqual((changed.status, other.status), (EQUIVALENT, EQUIVALENT))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -490,7 +490,7 @@
     {
      "file": ".referee.json",
      "old": "\"threshold\": 12",
-     "new": "\"threshold\": 100"
+     "new": "\"threshold\": 30"
     }
    ],
    "run": [
@@ -533,7 +533,7 @@
     {
      "file": ".referee.json",
      "old": "\"threshold\": 12",
-     "new": "\"threshold\": 100"
+     "new": "\"threshold\": 30"
     },
     {
      "file": ".referee.json",
@@ -550,7 +550,7 @@
    ]
   },
   {
-   "name": "exclude 裡的套件：mutation 的 package 範圍通過（不跑 web/broken）",
+   "name": "exclude 裡的套件：mutation 的 package 範圍不跑 web/broken；Weight、Add 沒有任何改壞的版本被抓到，沒過",
    "edits": [
     {
      "file": "web/broken/broken.go",
@@ -585,12 +585,26 @@
     }
    ],
    "run": [
-    "mutation"
+    "mutation",
+    "--json",
+    "m.json"
    ],
-   "exit": 0,
+   "exit": 1,
    "not_contains": [
     "web/broken"
-   ]
+   ],
+   "contains": [
+    "測到率：16.67%（門檻 0%）",
+    "shipping/fee.go:15  Weight（沒抓到 0、測試沒跑到 8）",
+    "notest/add.go:3  Add（沒抓到 0、測試沒跑到 1）",
+    "FAIL：有 2 個函式沒有任何改壞的版本被測試抓到"
+   ],
+   "json": "m.json",
+   "json_values": {
+    "result": "fail",
+    "mutation.undetected_functions.0.name": "Add",
+    "mutation.undetected_functions.1.name": "Weight"
+   }
   },
   {
    "name": "exclude 裡的套件：mutation 的 module 範圍結束碼 2（已知限制：gremlins --integration 從模組根目錄跑 go test ./...，排除的套件測試照樣會跑）",
@@ -1068,6 +1082,134 @@
       "REFEREE_BASE": "main"
      }
     }
+   ]
+  },
+  {
+   "name": "gate.sh：.referee.json 不是合法的 JSON，擋下（結束碼 2），不因為讀不到 base 而放行",
+   "mount": "go",
+   "commit_edits": [
+    {
+     "file": ".referee.json",
+     "old": "\"base\": \"origin/main\"",
+     "new": "\"base\": \"main\""
+    }
+   ],
+   "edits": [
+    {
+     "file": "shipping/fee_test.go",
+     "old": "got != 0 {",
+     "new": "got != 5 {"
+    },
+    {
+     "file": ".referee.json",
+     "content": "{"
+    }
+   ],
+   "steps": [
+    {
+     "shell": [
+      "{bash}",
+      "{gate_sh}"
+     ],
+     "exit": 2,
+     "contains": [
+      "讀不到 .referee.json"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "gate.sh：.referee.json 被刪掉，擋下（結束碼 2）",
+   "mount": "go",
+   "commit_edits": [
+    {
+     "file": ".referee.json",
+     "old": "\"base\": \"origin/main\"",
+     "new": "\"base\": \"main\""
+    }
+   ],
+   "edits": [
+    {
+     "file": "shipping/fee_test.go",
+     "old": "got != 0 {",
+     "new": "got != 5 {"
+    },
+    {
+     "file": ".referee.json",
+     "delete": true
+    }
+   ],
+   "steps": [
+    {
+     "shell": [
+      "{bash}",
+      "{gate_sh}"
+     ],
+     "exit": 2,
+     "contains": [
+      "讀不到 .referee.json"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "gate.sh：.referee.json 壞掉時 REFEREE_BASE 也救不了，裁判以設定有誤擋下（結束碼 2）",
+   "mount": "go",
+   "commit_edits": [
+    {
+     "file": ".referee.json",
+     "old": "\"base\": \"origin/main\"",
+     "new": "\"base\": \"main\""
+    }
+   ],
+   "edits": [
+    {
+     "file": "shipping/fee_test.go",
+     "old": "got != 0 {",
+     "new": "got != 5 {"
+    },
+    {
+     "file": ".referee.json",
+     "content": "{"
+    }
+   ],
+   "steps": [
+    {
+     "shell": [
+      "{bash}",
+      "{gate_sh}"
+     ],
+     "exit": 2,
+     "contains": [
+      "品質量測失敗",
+      "不是合法的 JSON"
+     ],
+     "env": {
+      "REFEREE_BASE": "main"
+     }
+    }
+   ]
+  },
+  {
+   "name": "這個平台不編譯的檔案（build constraint）：不產生改壞的版本，不會被算成測試沒跑到",
+   "edits": [
+    {
+     "file": "shipping/never.go",
+     "content": "//go:build neverbuilt\n\npackage shipping\n\n// Never 只在有 neverbuilt 這個 tag 時才編譯，測試跑不到它。\nfunc Never(n int) int {\n\tif n > 1 {\n\t\treturn n\n\t}\n\treturn 0\n}\n"
+    }
+   ],
+   "run": [
+    "mutation",
+    "--base",
+    "main"
+   ],
+   "exit": 0,
+   "contains": [
+    "PASS"
+   ],
+   "not_contains": [
+    "shipping/never.go",
+    "測試沒跑到  "
    ]
   }
  ]

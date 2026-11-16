@@ -1,4 +1,4 @@
-"""JSON 報告（referee.report/1）的格式驗證，selftest 和單元測試都用它。
+"""JSON 報告（referee.report/2）的格式驗證，selftest 和單元測試都用它。
 
 欄位多或少都算錯：多出來的欄位代表程式和 docs/合約.md 對不上，應該在這裡補上，不能默默放行。
 
@@ -14,7 +14,7 @@
 
 from referee.model import STATUSES
 
-REPORT_SCHEMA = "referee.report/1"
+REPORT_SCHEMA = "referee.report/2"
 
 
 class Num:
@@ -80,6 +80,7 @@ REPORT = {
         "packages": Dic(COUNTS),
         "mutants": Lst(MUTANT),
         "unused_equivalents": Lst(dict),
+        "undetected_functions": Opt(Lst({"file": str, "name": str, "start": int, "end": int})),
     }),
 }
 

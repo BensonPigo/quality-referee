@@ -90,7 +90,18 @@ def print_mutation_result(mutants, counts, cfg, settings, unused=()):
             print("  {}  {}  {}{}".format(e["file"], e["mutator"], e["line_text"], column))
 
 
-def mutation_json(mutants, counts, cfg, unused=()):
+def print_undetected_functions(funcs, measured):
+    """列出沒有任何改壞版本被抓到的函式，附上它的改壞版本是沒抓到還是測試沒跑到。"""
+    if not funcs:
+        return
+    print()
+    print("沒有任何改壞的版本被測試抓到的函式（{} 個）：".format(len(funcs)))
+    for f in funcs:
+        counts = mutation.count([m for m in measured if m.file == f.file and f.start <= m.line <= f.end])
+        print("  {}:{}  {}（沒抓到 {}、測試沒跑到 {}）".format(f.file, f.start, f.name, counts[LIVED], counts[NOT_COVERED]))
+
+
+def mutation_json(mutants, counts, cfg, unused=(), undetected=None):
     m = cfg["mutation"]
     items = [{
         "file": x.file, "line": x.line, "column": x.column, "mutator": x.mutator, "status": x.status,
@@ -106,6 +117,8 @@ def mutation_json(mutants, counts, cfg, unused=()):
         "packages": dict(sorted(mutation.by_package(mutants).items())),
         "mutants": items,
         "unused_equivalents": list(unused),
+        "undetected_functions": None if undetected is None else [
+            {"file": f.file, "name": f.name, "start": f.start, "end": f.end} for f in undetected],
     }
 
 

@@ -11,6 +11,7 @@ from referee.errors import RefereeError
 
 CONFIG_FILE = ".referee.json"
 GATES = ["test", "crap", "mutation"]
+CRAP_THRESHOLD_MAX = 30  # 各專案可以訂得更嚴，但最寬只能到 30
 
 DEFAULTS = {
     "version": 1,
@@ -23,7 +24,7 @@ DEFAULTS = {
     "crap": {"threshold": 12, "inspector": None},
     "mutation": {
         "kill_rate_threshold": 80,
-        "reach_rate_threshold": 50,  # 一定要有門檻：沒有門檻，新寫的程式完全沒有測試也能過關
+        "reach_rate_threshold": 50,  # 一定要有門檻：沒有門檻，新寫的程式完全沒有測試也能過關（沒有任何改壞版本時不判定）
         "exclude_mutators": [],
         "equivalents_file": ".referee-equivalents.json",
         "inspector": None,
@@ -84,15 +85,19 @@ def _check_values(cfg):
     gates = cfg["gates"]
     need(isinstance(gates, list) and all(g in GATES for g in gates) and len(set(gates)) == len(gates),
          "gates 必須是 {} 的子集合的陣列，不能重複".format("、".join(GATES)))
+    need(gates != [], "gates 至少要啟用一關")
     need(isinstance(cfg["base"], str) and cfg["base"], "base 必須是分支名稱的字串")
     for key in ("sources", "tests", "exclude"):
         need(_str_list(cfg[key]), "{} 必須是字串陣列".format(key))
     need(_command(cfg["test"]["command"], True), "test.command 必須是非空字串組成的陣列（指令不經過 shell）")
     need(_number(cfg["crap"]["threshold"]), "crap.threshold 必須是數字")
+    need(not _number(cfg["crap"]["threshold"]) or 0 < cfg["crap"]["threshold"] <= CRAP_THRESHOLD_MAX,
+         "crap.threshold 必須大於 0、不能超過 {}".format(CRAP_THRESHOLD_MAX))
     need(_command(cfg["crap"]["inspector"], True), "crap.inspector 必須是非空字串組成的陣列（指令不經過 shell）")
     m = cfg["mutation"]
-    need(_number(m["kill_rate_threshold"]), "mutation.kill_rate_threshold 必須是數字")
-    need(_number(m["reach_rate_threshold"]), "mutation.reach_rate_threshold 必須是數字")
+    for key in ("kill_rate_threshold", "reach_rate_threshold"):
+        need(_number(m[key]), "mutation.{} 必須是數字".format(key))
+        need(not _number(m[key]) or 0 <= m[key] <= 100, "mutation.{} 必須在 0 到 100 之間".format(key))
     need(_str_list(m["exclude_mutators"]), "mutation.exclude_mutators 必須是字串陣列")
     need(isinstance(m["equivalents_file"], str) and m["equivalents_file"], "mutation.equivalents_file 必須是檔名的字串")
     need(_command(m["inspector"], True), "mutation.inspector 必須是非空字串組成的陣列（指令不經過 shell）")

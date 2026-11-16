@@ -77,6 +77,14 @@ class CSharpTemplate(unittest.TestCase):
         for rel in ((".claude", "settings.json"), (".claude", "hooks", "gate.sh")):
             self.assertEqual(read_bytes(CSHARP, *rel), read_bytes(TEMPLATE, *rel), "/".join(rel))
 
+    def test_ai_guidance_is_the_same_as_go_and_points_at_the_guide(self):
+        for rel in (("CLAUDE.md",), (".claude", "skills", "referee-onboard", "SKILL.md")):
+            text = read_bytes(CSHARP, *rel)
+            self.assertEqual(text, read_bytes(TEMPLATE, *rel), "/".join(rel))
+            self.assertIn("tools/referee/docs/AI導入指引.md".encode("utf-8"), text)
+        guide = read_bytes(REPO, "docs", "AI導入指引.md").decode("utf-8")
+        self.assertIn("最寬只能到 {}".format(config.CRAP_THRESHOLD_MAX), guide)
+
     def test_gate_sh_is_executable_in_git(self):
         out = subprocess.run(["git", "ls-files", "-s", "templates/csharp/.claude/hooks/gate.sh"], cwd=REPO,
                              stdout=subprocess.PIPE, universal_newlines=True, check=True).stdout
