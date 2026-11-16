@@ -82,12 +82,17 @@ def run_crap(base, cfg, root):
 
 def run_mutation(base, cfg, root):
     entries = equivalents.load(os.path.join(root, cfg["mutation"]["equivalents_file"]))
+    by_function = cfg["crap"]["inspector"] is not None  # 逐一看函式要有函式表，沒設定檢查員就不看
+    prod = None
     if base:
         changed = changes.changed_lines(base, root)
         prod = {f: s for f, s in changed.items() if in_scope(f, cfg["sources"], cfg["tests"], cfg["exclude"])}
         if not prod:
             print("PASS：這次沒有改到正式程式碼")
-            return _finish_mutation(base, cfg, "pass", [], [], {}, None)
+            return _finish_mutation(base, cfg, "pass", [], [], {}, None, [] if by_function else None)
+    # 函式表先取：它比抓錯檢查快得多，量測失敗就早點停下
+    funcs = _judged_functions(cfg, root, prod) if by_function else None
+    if base:
         tools, settings, measured = inspector.run_inspector("mutation", cfg, root, sorted(prod))
         measured = _scope_filter(measured, cfg)
         mutants = [m for m in measured if changes.overlaps(prod.get(m.file), m.line, m.line)]
@@ -103,6 +108,16 @@ def run_mutation(base, cfg, root):
     report.print_mutation_result(mutants, counts, cfg, settings, unused)
 
     problems = mutation.judge(counts, cfg)
+    undetected = None
+    if by_function:
+        # 用量到的全部改壞版本（measured），不只改到的行：在測得好的函式裡改一行，不能因為那一行沒抓到就說它沒有測試
+        undetected = mutation.undetected_functions(funcs, measured)
+        report.print_undetected_functions(undetected, measured)
+        if undetected:
+            problems.append("有 {} 個函式沒有任何改壞的版本被測試抓到：補上會檢查結果的測試；"
+                            "測試寫不出來的話，要調整的是函式的結構".format(len(undetected)))
+    else:
+        print("沒有設定 crap.inspector，拿不到函式的範圍，這次不檢查「每個函式至少抓到一個改壞的版本」。")
     print()
     for p in problems:
         print("FAIL：" + p)
@@ -111,25 +126,34 @@ def run_mutation(base, cfg, root):
             print("PASS：改到的行沒有量到改壞的版本（沒有可以改的地方，或是所在的專案沒有測試，請看上方訊息）")
         else:
             print("PASS")
-    return _finish_mutation(base, cfg, "fail" if problems else "pass", mutants, unused, tools, settings)
+    return _finish_mutation(base, cfg, "fail" if problems else "pass", mutants, unused, tools, settings, undetected)
+
+
+def _judged_functions(cfg, root, prod):
+    """第三關要逐一看的函式：有 --base 時（prod 是改到的原始碼檔案和行）只看改到的函式，沒有時是全部。"""
+    _, _, funcs = inspector.run_inspector("crap", cfg, root, None)
+    funcs = _scope_filter(funcs, cfg)
+    if prod is not None:
+        funcs = [f for f in funcs if changes.overlaps(prod.get(f.file), f.start, f.end)]
+    return funcs
 
 
 def classify(measured, mutants, cfg, entries, scope, root):
     """填入行原文，再依序做兩件事：設定排除的改法（EXCLUDED_MUTATOR）、排除清單比對（EQUIVALENT）。
 
     measured 是量到的全部改壞版本（已篩過範圍），mutants 是其中這次要計算的（用 --base 時只有改到的行）。
-    排除清單有沒有用到要看全部量到的，所以兩者都標記，回傳排除清單裡沒用到的項目。
+    排除清單有沒有用到、每個函式有沒有抓到，都要看全部量到的，所以兩者都標記，回傳排除清單裡沒用到的項目。
     """
     mutation.fill_line_text(measured, root)
     mutation.exclude_mutators(measured, cfg["mutation"]["exclude_mutators"])
     return equivalents.apply(mutants, entries, measured, scope)
 
 
-def _finish_mutation(base, cfg, result, mutants, unused, tools, settings):
+def _finish_mutation(base, cfg, result, mutants, unused, tools, settings, undetected):
     counts = mutation.count(mutants)
     rep = report.build_report(
         "mutation", base, result, _inspector_info(cfg, "mutation", tools, settings),
-        mutation_part=report.mutation_json(mutants, counts, cfg, unused))
+        mutation_part=report.mutation_json(mutants, counts, cfg, unused, undetected))
     return (1 if result == "fail" else 0), rep
 
 

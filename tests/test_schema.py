@@ -17,7 +17,8 @@ def crap_report():
 def mutation_report():
     part = {"kill_rate_threshold": 80, "reach_rate_threshold": 50, "exclude_mutators": [], "counts": counts(),
             "kill_rate": None, "reach_rate": None, "packages": {"a": counts()}, "mutants": [],
-            "unused_equivalents": []}
+            "unused_equivalents": [],
+            "undetected_functions": [{"file": "a/b.go", "name": "F", "start": 1, "end": 9}]}
     return report.build_report("mutation", "main", "fail", {"command": ["x"], "tools": {"g": "1"}, "settings": {"w": 4}},
                                mutation_part=part)
 

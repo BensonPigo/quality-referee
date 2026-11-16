@@ -316,7 +316,7 @@
    ]
   },
   {
-   "name": "測試失敗：抓錯檢查結束碼 2",
+   "name": "測試失敗：抓錯檢查結束碼 2（先取函式表，函式表的檢查員就停下）",
    "edits": [
     {
      "file": "Shop/Pricing.cs",
@@ -327,6 +327,43 @@
      "file": "Shop.Tests/PricingTests.cs",
      "old": "[InlineData(500, false, \"\", 500)]",
      "new": "[InlineData(500, false, \"\", 501)]"
+    }
+   ],
+   "run": [
+    "mutation",
+    "--base",
+    "main"
+   ],
+   "exit": 2,
+   "contains": [
+    "測試沒有全部通過"
+   ],
+   "not_contains": [
+    "Stryker.NET 執行失敗"
+   ]
+  },
+  {
+   "name": "測試失敗、沒設 crap.inspector：抓錯檢查由 Stryker.NET 停下，結束碼 2",
+   "edits": [
+    {
+     "file": "Shop/Pricing.cs",
+     "old": "if (coupon == \"SAVE100\" && total >= 1000)",
+     "new": "if (total >= 1000 && coupon == \"SAVE100\")"
+    },
+    {
+     "file": "Shop.Tests/PricingTests.cs",
+     "old": "[InlineData(500, false, \"\", 500)]",
+     "new": "[InlineData(500, false, \"\", 501)]"
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"gates\": [\"test\", \"crap\", \"mutation\"]",
+     "new": "\"gates\": [\"test\", \"mutation\"]"
+    },
+    {
+     "file": ".referee.json",
+     "old": "    \"threshold\": 12,\n    \"inspector\": [\"{python}\", \"{csharp_inspector}\", \"functions\"]\n",
+     "new": "    \"threshold\": 12\n"
     }
    ],
    "run": [
