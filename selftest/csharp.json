@@ -181,7 +181,7 @@
    "exit": 0,
    "contains": [
     "抓錯率：100.00%",
-    "檢查員設定：target Sample.slnx、workers null",
+    "檢查員設定：target Sample.slnx、workers 預設",
     "PASS"
    ],
    "not_contains": [

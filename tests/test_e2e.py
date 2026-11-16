@@ -284,6 +284,22 @@ class E2E(TempDirMixin, unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(self.report()["result"], "fail")
 
+    def test_test_prints_verdict_line(self):
+        code, out, err = self.run_cli(["test"])
+        self.assertEqual(code, 0, out + err)
+        self.assertTrue(out.rstrip().endswith("PASS：測試指令結束碼 0"), out)
+        self.config({"test": {"command": FAIL_CMD}})
+        code, out, err = self.run_cli(["test"])
+        self.assertEqual(code, 1)
+        self.assertTrue(out.rstrip().endswith("FAIL：測試指令結束碼 1，單元測試沒過"), out)
+
+    def test_unset_setting_prints_default_not_null(self):
+        sheet = functions_sheet([fn("main.go", "Main", 1, 5, 2, 1.0)], settings={"target": "A.slnx", "workers": None})
+        code, out, err = self.run_cli(["crap", "--json", self.json_path()], crap=sheet)
+        self.assertIn("檢查員設定：target A.slnx、workers 預設\n", out)
+        self.assertNotIn("null", out)
+        self.assertIsNone(self.report()["inspector"]["settings"]["workers"])
+
     def test_test_command_not_found_is_exit_2(self):
         self.config({"test": {"command": ["definitely-not-a-command-xyz"]}})
         code, out, err = self.run_cli(["test"])

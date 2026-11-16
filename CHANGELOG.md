@@ -1,5 +1,12 @@
 # 更新記錄
 
+## v0.2.1
+
+依 macOS 上 C# 檢查員試點的回饋修正。判定規則、合約、報告的 JSON 格式都沒變。
+
+- `test`：最後印判定行「PASS：測試指令結束碼 0」或「FAIL：測試指令結束碼 N，單元測試沒過」，跟 `crap`、`mutation` 一致。之前只印測試指令自己的輸出，要看結束碼才知道過不過。
+- 「檢查員設定」那一行，沒指定的值（例如沒帶 `--workers`）印成「預設」，不再印「null」。JSON 報告裡照舊是 `null`。
+- README：範本是點開頭的檔案，要用 `ls -a` 看；C# 已知限制加上 Stryker.NET 會把同一個位置編得過的改壞版本一起標成無效；驗證狀態加上 macOS。
 ## v0.2.0
 
 新增 C# 標準檢查員（SDK 風格、.NET 6 以上的專案）。合約、裁判的判定規則、Go 檢查員都沒變。
@@ -13,7 +20,8 @@
 
 ## v0.1.3
 
-- 加上 `.gitattributes`：`*.sh` 一律以 LF 取出。之前在 Windows 上 `core.autocrlf=true` 時，submodule 裡的 `gate.sh` 會是 CRLF，照 README 用 `cp` 複製到專案後，bash 可能因為 `$''` 執行失敗。
+- 加上 `.gitattributes`：`*.sh` 一律以 LF 取出。之前在 Windows 上 `core.autocrlf=true` 時，submodule 裡的 `gate.sh` 會是 CRLF，照 README 用 `cp` 複製到專案後，bash 可能因為 `$'
+'` 執行失敗。
 - `gate.sh`：`&&` 和 `[` 之間補一個空格（v0.1.2 漏掉，不影響執行）。
 - **升級注意**：v0.1.2 在 Windows 上用 `cp` 複製過 `gate.sh` 的專案，確認檔案是 LF（`git ls-files --eol .claude/hooks/gate.sh` 的 `w/` 要是 `lf`）。升到 v0.1.3 後重新複製一次即可。
 

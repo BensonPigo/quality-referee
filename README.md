@@ -55,6 +55,8 @@ C# 專案把上面的 `templates/go` 換成 `templates/csharp`，最後一行換
 cp tools/referee/templates/csharp/workflows/csharp.yml .github/workflows/referee.yml
 ```
 
+範本裡除了 workflow 都是點開頭的檔案（`.referee.json`、`.claude/` 等），`ls` 或 `ls -R` 看不到，要用 `ls -a`。
+
 `.claude/settings.json` 和 `gate.sh` 兩個語言的範本一模一樣。用 Gitea 的話，workflow 放 `.gitea/workflows/referee.yml`。接著：
 
 1. 打開 `.referee.json`，依專案調整（見下一節）。
@@ -189,6 +191,7 @@ C# 檢查員：
 - Windows 上，Stryker.NET 的檔案路徑到 260 字元就讀不到自己的版本而當掉。檢查員安裝後會先檢查，路徑太長時請把 `REFEREE_TOOLS_DIR` 設到短一點的路徑（例如 `C:\referee-tools`）。預設的 `~/.cache/quality-referee` 不會碰到。
 - 用 deterministic build、SourceLink（例如 `ContinuousIntegrationBuild=true`）時，coverlet 報告裡的檔案路徑可能對不回原始碼，覆蓋率會變成 0。還沒驗證過。
 - 只有頂層陳述式（top-level statements）的 `Program.cs` 不會列成函式。
+- 同一個位置有一個改壞版本編譯不過時，Stryker.NET 可能把那個位置其他編得過的改壞版本也一起標成無效（`NOT_VIABLE`），那些行在第三關就沒有被判定。例如 `cart.Lines.Count == 0`：「`Count` 改成 `Sum`」編不過（`Count` 是屬性），同一欄的「`==` 改成 `!=`」也跟著被標成無效。無效的版本不算進抓錯率和測到率，文字報告也不會顯示，要看 JSON 報告的 `mutation.mutants` 裡 `status` 是 `NOT_VIABLE` 的項目（計數在 `mutation.counts.NOT_VIABLE`）。
 
 ## 開發
 
@@ -216,12 +219,12 @@ selftest 的 gate.sh 情境把這個 repo 的 `git ls-files` 複製到範例的 
 - Claude Code 實際觸發 Stop hook：在 BeThere 的對話裡改壞一個測試，結束回覆時 gate.sh 擋下，訊息是「第一關沒過」。
 - `templates/go/workflows/go.yml` 在 GitHub Actions（ubuntu-latest）上跑：BeThere 的 PR #13～#16。submodule 是公開 repo，不用存取權杖。PR #16 有改到 Go 程式，第二、三關在 CI 上實際判定：改到 4 個函式，產生 5 個改壞版本。第一個 commit 沒抓到 1 個，抓錯率 80%，剛好等於門檻，所以通過，報告也列出了沒抓到的那一個。補上測試後 5 個全部抓到，數字和本機一致。
 
+- macOS（arm64，.NET SDK 10.0.101，Python 3.13，系統的 bash 3.2）：單元測試、selftest 的 Go 和 C# 範例情境；照 README 在一個另外建的 C# 專案（購物車、折扣、運費，83 個測試，用中央套件管理）掛上 submodule 和範本，三關的判定、刻意失敗的情境（測試改壞、CRAP 超標、刪掉邊界測試），以及 Claude Code 實際觸發 Stop hook 時 gate.sh 擋下，都符合預期；手算的 21 個函式的複雜度和檢查員算的一樣。
 - C# 檢查員：selftest 的 C# 範例情境（CRAP、抓錯檢查、照 README 掛上 submodule 和範本、gate.sh），本機 Windows（.NET SDK 10）和 GitHub Actions（ubuntu-latest）。範例的每個函式旁邊寫了手算的複雜度，檢查員算出來的都一樣。工具快取目錄放在塞了惡意設定檔的上層目錄底下，照樣建置成功。
 
 還沒驗證：
 
-- C# 檢查員還沒有在真實專案試點過；`templates/csharp/workflows/csharp.yml` 還沒在專案的 runner 上跑過。
+- C# 檢查員還沒有在真實專案試點過（上面 macOS 的 C# 專案是為了驗證另外建的）；`templates/csharp/workflows/csharp.yml` 還沒在專案的 runner 上跑過。
 - C# 檢查員在 .NET 6～9 的 SDK 上還沒跑過（selftest 用 .NET 10）。
 - CI 實際擋下 PR（結束碼 1 讓 workflow 失敗）還沒在 runner 上發生過。判定和結束碼跟本機相同，本機和 selftest 都驗證過結束碼 1；workflow 的每個步驟都是直接執行裁判的指令，結束碼不是 0 時，GitHub Actions 會讓那一步失敗。
 - Gitea 的 act_runner 支不支援範本用的 v7 actions（Node 24）。
-- macOS 上還沒跑過。
