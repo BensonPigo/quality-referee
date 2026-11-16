@@ -299,7 +299,7 @@
     "沒抓到",
     "把 `>=` 改成 `>`",
     "FAIL：",
-    "檢查員設定：coverage_scope package、workers null"
+    "檢查員設定：coverage_scope package、workers 預設"
    ],
    "not_contains": [
     "略過"

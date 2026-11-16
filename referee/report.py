@@ -51,14 +51,14 @@ def location(m):
 
 def _value(v):
     if v is None:
-        return "null"
+        return "預設"
     if isinstance(v, bool):
         return "true" if v else "false"
     return str(v)
 
 
 def settings_line(settings):
-    """「檢查員設定：workers 4、coverage_scope module」，沒有就是「檢查員設定：無」。"""
+    """「檢查員設定：workers 4、coverage_scope module」，沒有就是「檢查員設定：無」；值是 null（沒指定，用工具的預設值）印成「預設」。"""
     if not settings:
         return "檢查員設定：無"
     return "檢查員設定：" + "、".join("{} {}".format(k, _value(v)) for k, v in settings.items())

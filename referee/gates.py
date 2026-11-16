@@ -37,6 +37,11 @@ def run_test(cfg, root):
     except OSError as e:
         raise RefereeError("無法執行 {}：{}".format(command[0], e))
     result = "pass" if code == 0 else "fail"
+    sys.stdout.flush()
+    if code == 0:
+        print("\nPASS：測試指令結束碼 0")
+    else:
+        print("\nFAIL：測試指令結束碼 {}，單元測試沒過".format(code))
     return (0 if code == 0 else 1), report.build_report("test", None, result, {"command": list(command)})
 
 
