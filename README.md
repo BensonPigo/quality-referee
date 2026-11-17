@@ -1,39 +1,66 @@
 # quality-referee
 
-裁判和檢查員分開的品質工具。裁判不認得任何語言，只執行設定檔寫的指令、讀檢查員交出的記分表，依門檻判定三道關：
+AI 寫程式的速度，人已經來不及逐行審。quality-referee 用三道機器量測的關卡把關：沒過就退回給 AI 重做，全過了才輪到人看。
 
-1. 單元測試：`test.command` 結束碼 0 才算過。
-2. CRAP：改到的函式，複雜度和覆蓋率算出來的 CRAP 不能超過門檻。
-3. 抓錯檢查：把程式改壞一點，測試要抓得到。改到的行上，抓錯率和測到率要達到門檻；改到的每個函式至少要有一個改壞的版本被抓到。
+## 要解決的問題
 
-各語言的量測做法放在「檢查員」裡。目前有 Go（`inspectors/go.py`）和 C#（`inspectors/csharp.py`，SDK 風格的 .NET 6 以上）的標準檢查員；其他語言，或專案想用自己的量法，寫一支照 [docs/合約.md](docs/合約.md) 交出記分表的腳本，換掉設定檔裡的指令就可以。
+- **人審不完。** AI 代理人幾分鐘產出的程式，人要花幾小時讀。逐行審查變成瓶頸，不然就是流於形式。
+- **寫給 AI 的規範擋不住東西。** 提示詞裡的程式碼規範對 AI 只是建議，可以忽略，沒有任何機制會把不合規的程式擋在版本庫外面。
+- **出事負責的還是人。** AI 不能替系統負責，按合併的人要。沒有逐行讀過的程式，要有可信的數字才簽得下去。
 
-需求：Python 3.8 以上，只用標準函式庫。Go 檢查員另外需要 Go（第一次執行時用 `go install` 裝 gocyclo、gremlins，要網路）；C# 檢查員另外需要 .NET SDK 6 以上（第一次執行時建置複雜度工具、裝 Stryker.NET，要網路）。Windows 上的 gate.sh 要用 Git for Windows 的 bash。
+做法是把「請寫好測試」換成量得出來、過不了就擋下的門檻。背景和論證見 [教材/企業級AI代理人品質驗證與自動化防線架構指南.md](教材/企業級AI代理人品質驗證與自動化防線架構指南.md)。
 
-## 誰扮演什麼角色
+## 三道關
 
-把三道關想成一場比賽：規則和判定只有一套，量測的方式各場地自己決定。
+| 關 | 量什麼 | 擋下什麼 |
+|---|---|---|
+| 1. 單元測試 | 專案的測試指令（例如 `go test ./...`）要全部通過 | AI 改東西時把原本會動的行為改壞 |
+| 2. CRAP | 這次改到的函式，CRAP 分數不能超過門檻（預設 12） | 又複雜又沒測試的函式 |
+| 3. 抓錯檢查（mutation testing） | 工具把這次改到的程式故意改壞一點，測試要抓得到 | 跑得到程式、卻什麼都沒驗證的測試 |
 
-| 角色 | 是誰 | 負責 | 不負責 |
-|---|---|---|---|
-| **裁判** | quality-referee（掛在專案的 `tools/referee/`） | 找出這次改到哪些行和函式；算 CRAP、抓錯率、測到率；比對排除清單；判定過或不過；寫報告；回傳結束碼 | 不認得任何語言，不跑測試，不呼叫任何量測工具 |
-| **記分表** | [docs/合約.md](docs/合約.md) 定的兩種 JSON：函式表、改壞版本表 | 裁判和檢查員之間唯一的約定。格式不對，裁判直接以結束碼 2 停下 | — |
-| **檢查員** | 一支指令：標準檢查員（`inspectors/go.py`、`inspectors/csharp.py`），或專案自己寫的腳本 | 照裁判給的資訊（`REFEREE_CONTEXT`）量測，把原始數字填進記分表 | 不判斷過不過，不算 CRAP，不標「改了也沒差」 |
-| **主辦方** | 各專案 repo | 寫 `.referee.json`：用哪個檢查員、帶什麼參數、哪些目錄不算、門檻多少；維護排除清單；寫測試 | 不改裁判的判定規則 |
-| **簽名的人** | 審 PR、按合併的人 | 看測試有沒有被刪或改鬆；逐項核准排除清單的 `reason`；決定門檻 | — |
+- **CRAP**：函式越複雜（分支越多）、被測試跑到的越少，分數越高。公式是 `複雜度² × (1 − 覆蓋率)³ + 複雜度`，所以覆蓋率 100% 時分數等於複雜度；複雜度 3、完全沒測試剛好是 12 分。超標時報告會說要拆函式，還是覆蓋率要補到多少。
+- **抓錯檢查**的三個條件：
+  - **抓錯率**：測試跑得到的改壞版本裡，有幾成被測試抓到（預設至少 80%）。
+  - **測到率**：全部改壞版本裡，有幾成被測試跑到（預設至少 50%）。
+  - 改到的每個函式，至少要有一個改壞的版本被抓到。
+  - 例子：工具做出 10 個改壞的版本，測試跑到其中 8 個，8 個裡有 6 個讓測試失敗。測到率是 8 ÷ 10 = 80%，抓錯率是 6 ÷ 8 = 75%，低於 80%，第三關沒過。
+- **只看這次改到的。** 第二、三關比對 base 分支（例如 `origin/main`），只檢查這次改到的函式和行。舊程式沒改到的不會擋你；改到了舊函式裡的一行，那個函式就要及格。
 
-各角色要做的事：
+```mermaid
+flowchart LR
+    A["AI 改程式"] --> B{"AI 每次回覆結束時<br/>第一、二關"}
+    B -- 沒過 --> A
+    B -- 通過 --> C{"PR 的 CI<br/>三關"}
+    C -- 沒過 --> A
+    C -- 通過 --> D["人審核、合併"]
+```
 
-- **quality-referee 的維護者**：判定規則、記分表和報告的格式、標準檢查員都在這裡改，改完發新版本。記分表或報告的格式一改，合約的版本就要跟著升（例如 `referee.functions/1` 升成 `/2`），各專案的自訂檢查員才知道要配合。
-- **專案 repo（主辦方）**：
-  1. 用 submodule 掛上裁判，複製範本（見「安裝到專案」）。
-  2. 在 `.referee.json` 選檢查員。標準檢查員能用就用，只調參數，例如 Go 的 `--coverage-scope module`；標準檢查員量不了這個專案時，自己寫一支，照合約交出記分表（見「自訂檢查員」）。
-  3. 寫測試、補測試，讓三道關過得去；認為某個改壞版本「改了也沒差」時，寫進排除清單，交給人核准。
-  4. 升級裁判時，改 submodule 指到的版本，再看 CHANGELOG：範本複製出去的檔案（例如 `.claude/hooks/gate.sh`）有改的話，要重新複製。
-- **檢查員**（標準的或自訂的都一樣）：只回報量到什麼。函式的複雜度、起訖行、覆蓋率；每個改壞版本在哪一行哪一欄、改了什麼、有沒有被測試抓到。量測失敗時結束碼不是 0，裁判會停下並印出檢查員的輸出。
-- **人**：裁判只判斷數字。測試寫得對不對、排除的理由成不成立，要人看。
+- **AI 自己會被擋下。** Claude Code 每次回覆結束時，Stop hook（Claude Code 在 AI 回覆結束時自動執行的腳本）跑第一、二關，沒過就把訊息交回 AI 繼續修；這次沒改任何東西時直接放行。PR 進 main 時 CI 跑完整三關，人手寫的 PR 也一樣。
+- **AI 不能靠改規則過關。** CI 讀的門檻和設定是 base 分支上的版本，在 PR 裡改鬆不會生效（見「把規則鎖起來」）。
+- **人審的是數字量不出來的部分。** 測試有沒有被刪或改鬆、排除的理由成不成立、門檻訂多少。
+- **AI 可以替專案把三道關建起來。** Go 和 C# 專案沒有測試時，照附的指引量現況、補測試（見「讓 AI 建立測試」）。
 
-兩種 JSON 不要搞混：**記分表**是檢查員填、給裁判讀的；**報告**（`referee.report/2`）是裁判寫、給人和 CI 讀的。檢查員不碰報告，所以不管專案用哪個檢查員，判定規則和報告格式都一樣，不同專案的分數可以互相比較。
+## 支援的語言和工具
+
+這個工具分成兩部分：
+
+- **裁判**：這個 repo 本身（`referee.py`）。找出這次改到什麼、算分數、判定過不過。它不認得任何語言。
+- **檢查員**：一支指令，負責實際量測某個語言的程式（跑覆蓋率、產生改壞的版本），把原始數字寫成一份 JSON（**記分表**）交給裁判。
+
+| 情況 | 能不能用 |
+|---|---|
+| Go | 可以，有現成的檢查員（`inspectors/go.py`） |
+| C#（SDK 風格的 .NET 6 以上） | 可以，有現成的檢查員（`inspectors/csharp.py`）。還在試驗階段：還沒在真實專案、.NET 6～9 的 SDK、CI 的 runner 上跑過，見 [docs/驗證狀態.md](docs/驗證狀態.md) |
+| 其他語言 | 第一關（只跑測試指令）可以直接用：照「安裝到專案」複製 Go 的範本，`.referee.json` 的 `gates` 只留 `["test"]`、改 `test.command`，workflow 把 setup-go 換成自己語言的步驟。第二、三關要自己寫檢查員（見「自訂檢查員」） |
+| 不用 Claude Code | 可以。裁判的指令和 CI 跟 AI 工具無關；少的是「AI 回覆結束時自動擋下」這一層，只剩 CI 擋。`.claude/` 底下的範本和 `CLAUDE.md` 是 Claude Code 專用 |
+| 不用 GitHub | 範本只有 GitHub Actions 的 workflow 和 CODEOWNERS。Gitea 的放法見「安裝到專案」，其他 CI 要照範本自己改寫 |
+
+需求：
+
+- Python 3.8 以上，只用標準函式庫。這份文件的指令都寫 `python`；機器上只有 `python3`（例如 macOS）時，指令都換成 `python3`，`.referee.json` 裡 `inspector` 的 `"python"` 也要改。
+- Go 檢查員：Go。第一次執行時用 `go install` 裝 gocyclo（算複雜度）、gremlins（產生改壞的版本），要網路。
+- C# 檢查員：.NET SDK 6 以上。第一次執行時建置複雜度工具、裝 Stryker.NET（產生改壞的版本），要網路。
+- Windows：Stop hook 的 `gate.sh` 要用 Git for Windows 的 bash 執行，安裝指令也在 Git Bash 裡跑。
 
 ## 安裝到專案
 
@@ -43,67 +70,66 @@
 git submodule add <這個 repo 的網址> tools/referee
 cp tools/referee/templates/go/.referee.json .
 cp tools/referee/templates/go/.referee-equivalents.json .
-mkdir -p .claude/hooks .github/workflows
+mkdir -p .github/workflows
+cp tools/referee/templates/go/workflows/go.yml .github/workflows/referee.yml
+cp tools/referee/templates/go/CODEOWNERS .github/CODEOWNERS
+
+# 以下是 Claude Code 專用，不用 Claude Code 可以跳過
+mkdir -p .claude/hooks .claude/skills
 cp tools/referee/templates/go/.claude/settings.json .claude/
 cp tools/referee/templates/go/.claude/hooks/gate.sh .claude/hooks/
-cp tools/referee/templates/go/workflows/go.yml .github/workflows/referee.yml
-mkdir -p .claude/skills
 cp -r tools/referee/templates/go/.claude/skills/referee-onboard .claude/skills/
 cp tools/referee/templates/go/CLAUDE.md .
-cp tools/referee/templates/go/CODEOWNERS .github/CODEOWNERS
 ```
 
-C# 專案把上面的 `templates/go` 換成 `templates/csharp`，最後一行換成：
+C# 專案：把上面的 `templates/go` 都換成 `templates/csharp`，複製 workflow 的那一行換成：
 
 ```
 cp tools/referee/templates/csharp/workflows/csharp.yml .github/workflows/referee.yml
 ```
 
-範本裡除了 workflow 都是點開頭的檔案（`.referee.json`、`.claude/` 等），`ls` 或 `ls -R` 看不到，要用 `ls -a`。
+範本裡除了 workflow 都是點開頭的檔案，`ls` 看不到，要用 `ls -a`。用 Gitea 的話，workflow 放 `.gitea/workflows/referee.yml`。
 
-`.claude/settings.json`、`gate.sh`、`.claude/skills/referee-onboard/`、`CLAUDE.md`、`CODEOWNERS` 兩個語言的範本一模一樣。專案原本已有 `CLAUDE.md` 時，把範本的內容加進去，不要整份覆蓋。用 Gitea 的話，workflow 放 `.gitea/workflows/referee.yml`。接著：
+接著：
 
-1. 打開 `.referee.json`，依專案調整（見下一節）。
-2. 專案裡有掃整個 repo 的檢查（例如掃全部 `.md` 連結、掃全部原始碼風格的測試）時，**把 `tools/referee/` 加進豁免**。submodule 裡有這個工具自己的文件和程式，不是專案的內容。
-3. 範本的 `.claude/settings.json` 把 `.referee.json`、`.referee-equivalents.json`、`.gitmodules`、`tools/referee/**`、`.github/**`、`.gitea/**`、`.claude/**` 設成 Claude Code 的編輯工具不能改，避免 AI 靠改門檻或設定讓檢查通過。專案原本已有 `.claude/settings.json` 時，合併 `permissions.deny` 和 `hooks.Stop`，不要整份覆蓋。
-4. 其他人 clone 專案時要加 `--recurse-submodules`，或 clone 之後執行 `git submodule update --init`。
-5. 把規則鎖起來（見下一節）。沒做這一步，AI 卡關時可以直接改門檻。
+1. **調整 `.referee.json`**（見「設定檔」）。至少確認 `sources`、`tests`、`exclude` 和 `test.command` 符合專案；只有 `python3` 的機器要改 `inspector`（見「需求」）。
+2. **專案原本就有的檔案不要整份覆蓋。** 已有 `CLAUDE.md` 時，把範本的內容加進去；已有 `.claude/settings.json` 時，合併 `permissions.deny` 和 `hooks.Stop`。
+3. **掃整個 repo 的檢查要豁免 `tools/referee/`。** 例如掃全部 `.md` 連結、掃全部原始碼風格的測試。submodule 裡是這個工具自己的文件和程式，不是專案的內容。
+4. **先在本機量一次現況**：
+
+   ```
+   python tools/referee/referee.py test
+   python tools/referee/referee.py crap
+   ```
+
+   不帶 `--base` 的 `crap` 會列出整個專案超標的函式。很多函式不及格是正常的：平常只檢查改到的，這份表是之後補測試的清單。
+5. **commit 並送第一個 PR。** 這個 PR 的 CI 用的是 PR 分支上的設定檔（main 上還沒有），審的人要特別看 `.referee.json`。
+6. **把規則鎖起來**（見下一節）。沒做這一步，AI 卡關時可以直接改門檻。
+7. 其他人 clone 專案時要加 `--recurse-submodules`，或 clone 之後執行 `git submodule update --init`。
+
+**不想一次上三關**：把 `.referee.json` 的 `gates` 改成只有 `["test"]`，穩定後再加 `crap`、`mutation`。沒啟用的關會印「還沒啟用」並通過，workflow 不用改。怎麼分階段導入、技術債怎麼處理，見 [教材/導入步驟_三道檢查.md](教材/導入步驟_三道檢查.md)。
+
+**升級**：改 submodule 指到的版本，再看 [CHANGELOG.md](CHANGELOG.md)。範本複製出去的檔案（例如 `gate.sh`、workflow）有改的話，要重新複製。
 
 ## 把規則鎖起來
 
-三個地方要一起設，少一個就有洞：
+範本已經設好兩層：Claude Code 不能用編輯工具改規則檔，CI 讀 base 分支上的設定。第三層要自己設：把 `.github/CODEOWNERS` 裡的 `@your-org/quality-owners` 換成實際負責審核的人，並在 GitHub 設 main 的分支保護。要勾哪些選項、每一層擋什麼、還有哪些改法擋不住，見 [docs/鎖定規則.md](docs/鎖定規則.md)。
 
-| 哪裡 | 做什麼 | 擋什麼 |
-|---|---|---|
-| `.claude/settings.json`（範本已設好） | 禁止 Claude Code 的編輯工具改設定檔、排除清單、工具、CI 設定 | AI 順手改設定。擋不住 AI 用 Bash 改檔 |
-| CI 的 `--config-from`（範本已設好） | 三個指令的設定檔都讀 base 的 commit 上的版本 | PR 裡把門檻、`gates`、`exclude`、檢查員指令改掉。改了也不生效，CI 的輸出會印「這次不採用」 |
-| `.github/CODEOWNERS` 加上分支保護（要自己設） | 改到規則檔案的 PR 要指定的人核准 | 其餘所有改法：排除清單、submodule 指到的版本、workflow 檔本身 |
-
-CODEOWNERS 和分支保護要做的事：
-
-1. 把 `.github/CODEOWNERS` 裡的 `@your-org/quality-owners` 換成實際負責審核的帳號或團隊。
-2. 在 GitHub 的 main 分支保護規則勾選「Require a pull request before merging」、「Require review from Code Owners」、「Dismiss stale pull request approvals when new commits are pushed」（不勾的話，核准之後還能再推新的 commit），並把「三道檢查」設成必須通過的檢查。
-3. AI 用的帳號不要列進 CODEOWNERS，也不要給合併權限和推 tag 的權限。
-
-`.github/CODEOWNERS` 是 GitHub 的格式和位置。Gitea 的 CODEOWNERS 語法不一樣，也還沒驗證過能不能強制核准，要照 Gitea 的文件另外設。
-
-`--config-from` 的代價：設定的改動要合併進 main 之後才生效。要調門檻或加排除目錄時，先單獨送一個改設定的 PR，合併後再送靠新設定才過得了的程式。
-
-排除清單 `.referee-equivalents.json` 不受 `--config-from` 影響，照樣讀 PR 分支上的：排除項目要跟它對應的程式改動放在同一個 PR 給人核准。所以 PR 自己加排除項目，CI 的第三關就會過，只有 CODEOWNERS 的核准擋得住。CI 的輸出會印「排除清單比 … 多了 N 項，這些項目要人核准」，審的人看到這一行就要去看清單。
-
-範本的 `exclude` 寫的是 `tools/referee/`，不是 `tools/`：寫 `tools/` 的話，把程式搬到 `tools/` 底下任何目錄就不受檢查。自己加排除目錄時也要注意範圍。
-
-base 分支上還沒有 `.referee.json` 時（第一次導入的那個 PR），`--config-from` 會改用 PR 分支上的，並在輸出寫明。
+副作用：裝好之後，Claude Code 的編輯工具不能改 `.github/`、`.claude/` 底下的任何檔案（例如別的 workflow），要改時由人改；改 `.github/`、`.claude/`、`CLAUDE.md` 的 PR 都要 CODEOWNERS 裡的人核准。
 
 ## 讓 AI 建立測試
 
-專案還沒有測試，或舊程式要補測試時，可以交給 AI 做。範本的 `CLAUDE.md` 寫了平常改程式要守的規則；`.claude/skills/referee-onboard/` 是 Claude Code 的 skill，請 AI「替這個專案建立三道品質關」時會用到。兩者都指向 [docs/AI導入指引.md](docs/AI導入指引.md)，用別的 AI 工具時，直接請它讀 `tools/referee/docs/AI導入指引.md`。
+專案還沒有測試，或舊程式要補測試時，可以交給 AI 做。目前限 Go 和 C#；其他語言要先有檢查員。
+
+範本的 `CLAUDE.md` 寫了平常改程式要守的規則；`.claude/skills/referee-onboard/` 是 Claude Code 的 skill，請 AI「替這個專案建立三道品質關」時會用到。兩者都指向 [docs/AI導入指引.md](docs/AI導入指引.md)，用別的 AI 工具時，直接請它讀 `tools/referee/docs/AI導入指引.md`。
 
 指引要 AI 做的事：量整個專案的現況、建立測試骨架、照 CRAP 的表由上往下補測試、用抓錯檢查確認測試抓得到錯。測試寫不出來時（函式太大、直接碰時鐘或檔案系統、沒有依賴反轉），AI 要停下來回報程式結構的問題，不能硬測。
 
 人還是要看 AI 寫的測試。替舊程式補的測試記錄的是現有的行為，現有的錯誤也會被當成正確答案；指引要求 AI 把這種測試標出來，審的時候先看這些。
 
 ## 日常使用
+
+裝好之後平常不用手動跑：Claude Code 每次回覆結束時 `gate.sh` 跑第一、二關，PR 進 main 時 CI 跑三關（細節見 [docs/Hook與CI.md](docs/Hook與CI.md)）。想自己跑時：
 
 ```
 python tools/referee/referee.py test
@@ -119,170 +145,76 @@ python tools/referee/referee.py check --base origin/main --skip mutation --json 
 | `mutation [--base B] [--json 檔]` | 第三關。有 `--base` 只算改到的行、只看改到的函式。除了兩個比例，每個函式至少要有一個改壞的版本被抓到，不然列出來並判沒過 |
 | `check [--base B] [--skip 關...] [--json 目錄]` | 已啟用的關依 test → crap → mutation 的順序跑，第一個沒過就停，印出「停在第 N 關」。`--json` 每一關寫一份：`test.json`、`crap.json`、`mutation.json` |
 
-四個指令都可以加 `--config-from <分支>`：設定檔改讀那個分支上的 `.referee.json`，工作目錄裡改過的設定這次不採用。CI 用它讀 base 分支的設定（見「把規則鎖起來」）；本機平常不用加。
+結束碼：0 通過，1 沒過門檻，2 量測失敗或設定有誤。
 
-結束碼：0 通過，1 沒過門檻，2 量測失敗或設定有誤。沒啟用（不在 `gates` 裡）的關印「還沒啟用」並以 0 結束。
+`--base` 比對的是「和 base 的共同祖先相比，這次改了哪些行」，含還沒 commit 的修改和還沒加入 git 的新檔案；改名的檔案只算真的改到的行。四個指令都可以加 `--config-from <分支>`，改讀那個分支上的設定檔；CI 用它，本機平常不用加。
 
-`--base` 比對的是「和 base 的共同祖先相比，這次改了哪些行」，含還沒 commit 的修改和還沒加入 git 的新檔案；改名的檔案只算真的改到的行。
+**沒過時怎麼辦**：
+
+- 第一關：修程式或測試，讓測試通過。
+- 第二關：照報告的建議拆函式，或補測試到報告說的覆蓋率。
+- 第三關：報告會列出沒抓到和測試沒跑到的改壞版本（在哪一行、改了什麼）。沒抓到的補斷言，沒跑到的補測試。真的「怎麼改結果都一樣」的，寫進排除清單 `.referee-equivalents.json`，交給人核准（格式見 [docs/合約.md](docs/合約.md)）。
 
 ## 設定檔 `.referee.json`
 
-未知的鍵、型別不對都是結束碼 2，不會默默改用預設值。
-
-| 鍵 | 預設 | 說明 |
-|---|---|---|
-| `version` | 必填 | 固定是 `1` |
-| `base` | `origin/main` | `check` 沒給 `--base` 時的比較基準，gate.sh 也讀它 |
-| `gates` | `["test", "crap", "mutation"]` | 要啟用的關，至少一個。`check` 的執行順序固定是 test → crap → mutation，跟這裡寫的順序無關 |
-| `sources` | `[]` | 原始碼樣式，例如 `["**/*.go"]`。有 `crap` 或 `mutation` 時至少要一個 |
-| `tests` | `[]` | 測試檔樣式，例如 `["**/*_test.go"]`。符合的檔案不算原始碼 |
-| `exclude` | `[]` | 整個跳過的目錄，例如 `["vendor/", "tools/"]` |
-| `test.command` | 啟用 `test` 時必填 | 字串陣列，不經過 shell |
-| `crap.threshold` | `12` | CRAP 上限。各專案可以訂得更嚴，最寬只能到 `30`，超過是結束碼 2 |
-| `crap.inspector` | 啟用 `crap` 時必填 | 檢查員指令（字串陣列） |
-| `mutation.kill_rate_threshold` | `80` | 抓錯率下限（%），0 到 100 |
-| `mutation.reach_rate_threshold` | `50` | 測到率下限（%），0 到 100。沒有這個門檻的話，新寫的程式完全沒有測試也能過關。改到的行上沒有任何改壞版本時（例如只回傳一個變數的函式），兩個比例都不判定 |
-| `mutation.exclude_mutators` | `[]` | 整類不檢查的改壞方式，名稱照檢查員回報的 `mutator` |
-| `mutation.equivalents_file` | `.referee-equivalents.json` | 「改了也沒差」的排除清單 |
-| `mutation.inspector` | 啟用 `mutation` 時必填 | 檢查員指令 |
-
-第三關「每個函式至少抓到一個」沒有門檻可以調：一個函式有可以改壞的地方，卻沒有任何一個改壞的版本被測試抓到，就是沒有測試在驗證它。它要靠 `crap.inspector` 取得函式的範圍，所以第三關會多跑一次這個檢查員；沒設定 `crap.inspector` 時不做這項檢查，輸出會寫明。本來就不寫單元測試的程式（例如只負責組裝和啟動的進入點），放在 `exclude` 的目錄裡。
-
-`sources`、`tests`、`exclude` 的比對規則（`*`、`**/`、目錄比對）寫在 [docs/合約.md](docs/合約.md)。裁判拿到記分表後會再依這三項篩一次，檢查員多交的項目不影響結果。
-
-### 排除清單
-
-`.referee-equivalents.json` 是陣列，每一項是一個人判斷過、改了也沒差的改壞版本：
+Go 範本的內容：
 
 ```json
-[{"file": "shipping/fee.go", "mutator": "CONDITIONALS_BOUNDARY", "line_text": "if total >= 1000 {",
-  "reason": "...", "approved_by": "...", "column": 11}]
+{
+  "version": 1,
+  "base": "origin/main",
+  "gates": ["test", "crap", "mutation"],
+  "sources": ["**/*.go"],
+  "tests": ["**/*_test.go"],
+  "exclude": ["tools/referee/", "vendor/"],
+  "test": {"command": ["go", "test", "./..."]},
+  "crap": {"threshold": 12, "inspector": ["python", "tools/referee/inspectors/go.py", "functions"]},
+  "mutation": {"kill_rate_threshold": 80, "reach_rate_threshold": 50,
+               "exclude_mutators": [], "equivalents_file": ".referee-equivalents.json",
+               "inspector": ["python", "tools/referee/inspectors/go.py", "mutants", "--workers", "4"]}
+}
 ```
 
-必填 `file`、`mutator`、`line_text`（該行去頭尾空白後的原文）、`reason`、`approved_by`；選填 `function`（只供顯示）、`column`（同一行同一種改法有好幾個時，只排除那一欄）。那一行被改了，項目就對不上，要重新判斷。沒用到的項目會印在報告裡。
-
-## Claude Code 的 Stop hook
-
-`.claude/hooks/gate.sh` 在 AI 要結束對話時跑第一、二關（`check --base <base> --skip mutation`）。沒過就以結束碼 2 擋下結束，把訊息交回 AI 繼續修。行為：
-
-- base 讀 `.referee.json` 的 `base`，環境變數 `REFEREE_BASE` 可以覆蓋。
-- 讀不到 `.referee.json`（檔案不在，或不是合法的 JSON），擋下。
-- 找不到 base（例如還沒 fetch），放行，CI 會再擋一次。
-- 這次沒有改任何東西，放行。
-- 有改東西但 `tools/referee/referee.py` 不在（submodule 沒抓），擋下並提示 `git submodule update --init`。
-- 沒過時依「停在第 N 關」給訊息：第一關是測試失敗，第二關是 CRAP 超標，結束碼 2 是量測失敗。
-
-抓錯檢查太慢，不放在 hook 裡，交給 CI。
-
-## CI
-
-`workflows/go.yml`（複製成 `.github/workflows/referee.yml`）在 PR 進 main 時跑三關：`fetch-depth: 0` 和 `submodules: true` 抓完整歷史和工具，setup-go、setup-python，再依序執行 `test`、`crap --base <base 的 commit>`、`mutation --base <base 的 commit>`，三個都帶 `--config-from <base 的 commit>`。基準用的是 PR 事件裡 base 的 commit（`github.event.pull_request.base.sha`），不是分支名稱。submodule 的網址是這個 runner 抓不到的私有 repo 時，要在 checkout 步驟加存取權杖。
-
-`workflows/csharp.yml` 一樣，只是把 setup-go 換成 setup-dotnet（範本寫 `10.0.x`，改成專案用的版本；專案有 `global.json` 的話改用 `global-json-file: global.json`）。
+C# 範本見 [templates/csharp/.referee.json](templates/csharp/.referee.json)。未知的鍵、型別不對都是結束碼 2，不會默默改用預設值。每個鍵的預設值和規則、`sources`、`tests`、`exclude` 的比對規則、排除清單的格式，都在 [docs/合約.md](docs/合約.md)。`inspector` 指令可以帶的參數見 [docs/Go檢查員.md](docs/Go檢查員.md)、[docs/CSharp檢查員.md](docs/CSharp檢查員.md)。
 
 ## 自訂檢查員
 
-標準檢查員量不了的語言或專案：在專案裡寫一支腳本，把 `crap.inspector`（或 `mutation.inspector`）換成它的指令。腳本從環境變數 `REFEREE_CONTEXT` 讀 context，把記分表寫到 `REFEREE_OUT`，量完結束碼 0。函式表和改壞版本表的欄位、context 內容、路徑比對規則，都在 [docs/合約.md](docs/合約.md)，`referee/paths.py` 和 `referee/sheets.py` 是參考實作，`inspectors/go.py` 和 `inspectors/csharp.py` 是完整的例子。記分表不合格式時，裁判以結束碼 2 停下並指出哪一項哪個欄位錯。
+標準檢查員量不了的語言或專案，在專案裡寫一支程式，用什麼語言寫都可以，把 `crap.inspector`（或 `mutation.inspector`）換成啟動它的指令：
 
-## Go 檢查員
+- **輸入**：環境變數 `REFEREE_CONTEXT` 是一個 JSON 檔的路徑，裡面有這次是哪一關、`sources`、`tests`、`exclude`、改到的檔案。
+- **輸出**：把記分表寫到環境變數 `REFEREE_OUT` 給的檔案路徑，量完結束碼 0。第二關交函式表（每個函式的位置、複雜度、覆蓋率），第三關交改壞版本表（每個改壞的版本在哪、有沒有被抓到）。
+- **格式錯時**：裁判以結束碼 2 停下，指出哪一項哪個欄位錯。
 
-`inspectors/go.py`，在 go.mod 所在的專案根目錄由裁判啟動：
+欄位的完整規格在 [docs/合約.md](docs/合約.md)；`inspectors/go.py` 和 `inspectors/csharp.py` 是完整的例子。
 
-```
-python tools/referee/inspectors/go.py functions|mutants [--coverage-scope package|module] [--workers N]
-```
+檢查員的程式放在專案裡時，它的目錄要加進 `exclude`（不然會被當成專案的程式量測），也要列進 `.github/CODEOWNERS`（不然 PR 可以改檢查員讓數字變好看）。
 
-- `--coverage-scope package|module`（預設 package）：module 時，別的套件的測試跑到的程式也算覆蓋率；抓錯檢查改用 gremlins 的 `--integration --coverpkg`，每個改壞的版本跑整個模組的測試。
-- `--workers N`：gremlins 同時跑幾個，沒給就用 gremlins 的預設值。只對 `mutants` 有用，`functions` 不跑 gremlins。
-- gocyclo、gremlins（都是 v0.6.0）第一次執行時用 `go install` 裝到 `REFEREE_TOOLS_DIR`（預設 `~/.cache/quality-referee`），之後直接執行，斷網也能量。
-- 要跳過的目錄寫在 `.referee.json` 的 `exclude`，檢查員從 context 讀，不用在 `inspector` 指令再寫一次。
-- 因為 build constraint 在這個平台不編譯的檔案（例如 Linux 上的 `*_windows.go`），`mutants` 不產生改壞的版本。gremlins 本來會產生，但測試一定跑不到，補測試也沒有用。
-- 記分表的 `tools` 寫兩個工具的版本，`settings` 寫實際生效的設定（`functions` 只有 `coverage_scope`，`mutants` 有 `coverage_scope` 和 `workers`），會進 JSON 報告。
+## 擋不住什麼
 
-範本的 `crap.inspector` 沒有帶 `--coverage-scope`，用 package 範圍。專案的測試分散在別的套件時，兩個 inspector 都加 `"--coverage-scope", "module"`。
+三道關量的是數字，下面這些要靠人：
 
-## C# 檢查員
+- **測試的正確答案錯了，三關照樣全過。** 測試照著程式的輸出寫，或替舊程式補的測試把現有的錯誤當成正確答案，工具都看不出來。人要看測試的正確答案對不對。
+- **完全沒有測試的專案，第一關會通過。** 測試指令在沒有測試時結束碼也是 0。
+- **「每個函式至少抓到一個」只要求一個。** 函式只測了一條路徑也算過，測試夠不夠還是要看兩個比例和人審。
+- **本機擋不住 AI 用 Bash 改檔**，CI 才擋得住。PR 改測試專案、建置設定或 workflow 檔，只有 CODEOWNERS 和人審擋得住。
+- **沒被 `sources` 比到、或被 `exclude` 排除的檔案，三關都看不到。**
 
-`inspectors/csharp.py`，給 SDK 風格、.NET 6 以上的專案（舊式 .NET Framework 的 csproj 不支援），在專案根目錄由裁判啟動：
+完整清單見 [docs/已知限制.md](docs/已知限制.md) 和 [docs/鎖定規則.md](docs/鎖定規則.md) 的「還擋不住的」。
 
-```
-python tools/referee/inspectors/csharp.py functions [--target 方案或專案檔]
-python tools/referee/inspectors/csharp.py mutants   [--target 方案或專案檔] [--workers N]
-```
+## 文件
 
-- `functions`：複雜度用內附的 Roslyn 工具依原始碼計算，規則和 gocyclo 一樣：1 加上 if、非 default 的 case、不是 `_` 的 switch 分支、for、foreach、while、do、catch、`&&`、`||`、`?:`、`??` 的個數。lambda 和區域函式算進所在的成員。列出的成員有方法、建構式、運算子、屬性和事件的存取子（含 `=>` 寫法）。覆蓋率用 `dotnet test --collect:"XPlat Code Coverage"`（coverlet），依行對應到每個函式；沒有任何測試跑過的檔案是 0。
-- `mutants`：Stryker.NET 5.0.0。有改到的檔案時（`mutation --base`）只改壞那些檔案。測試一開始就失敗時，以結束碼 2 停下。
-- `--target`：要測試的 `.sln`、`.slnx` 或 `.csproj`。沒給時用專案根目錄唯一的 `.sln` 或 `.slnx`，沒有或不只一個就以結束碼 2 停下。`mutants` 給 `.csproj` 時要是測試專案。
-- `--workers N`：Stryker.NET 同時跑幾個（`--concurrency`），沒給就用 Stryker 的預設值。只對 `mutants` 有用。
-- 專案的需求：PATH 上有 .NET SDK 6 以上；測試專案引用 `coverlet.collector`（`dotnet new xunit`、`mstest`、`nunit` 的範本預設就有），而且 `dotnet test` 走 VSTest。
-- 複雜度工具第一次執行時從原始碼建置、Stryker.NET 第一次執行時用 `dotnet tool install` 裝，都放在 `REFEREE_TOOLS_DIR`（預設 `~/.cache/quality-referee`），要網路，之後直接執行。建置和安裝都在快取目錄裡進行，並且放了隔離用的設定檔，專案的 `Directory.Build.*`、中央套件管理、`global.json`、`NuGet.config` 都不會影響工具，也不會在 `tools/referee/` 底下留下 `bin/`、`obj/`。
-- `bin/`、`obj/`（任何一層）和產生的檔案（`*.g.cs`、`*.Designer.cs`）檢查員自己跳過，不用寫進 `exclude`。範本的 `tests` 比對 `*.Tests/`、`*.Test/`、`*.UnitTests/` 目錄，測試專案的命名不一樣時要改。
-- 記分表的 `tools` 寫 Roslyn 或 Stryker.NET 的版本，以及執行測試的 SDK 版本；`settings` 寫實際生效的 `target`（`mutants` 另有 `workers`）。
-
-## 已知限制
-
-- module 範圍的抓錯檢查會跑到被排除套件的測試。gremlins v0.6.0 的 `--integration` 一律從模組根目錄跑 `go test ./...`，`exclude` 裡的套件測試照樣會跑。排除的套件只要有一個測試失敗，檢查就以結束碼 2 停下（gremlins 執行失敗）。quality-tools v2.4.0 也一樣，用 package 範圍可以避開。
-- 根目錄有 Go 套件時，gremlins 對根目錄的套件（`.`）一律跑 `./...`，不論範圍是 package 還是 module，都會跑到所有套件的測試，包含 `exclude` 裡的。同理，非根目錄的套件底下有被排除的子套件時，子套件的測試也會被跑到。
-- `.claude/settings.json` 的 `Edit(...)` 規則只擋 Claude Code 的編輯工具，擋不住 AI 用 Bash 改檔，而且只在這個 repo 開的對話生效，在別的目錄開的對話改這個 repo 的檔案不受限制。門檻被改鬆由 CI 的 `--config-from` 擋；排除清單、submodule 的版本、workflow 檔被改，要靠 CODEOWNERS 和分支保護，沒設就擋不住。
-- `--config-from` 只管設定檔。設定檔裡的指令（`test.command`、檢查員）執行的是 PR 分支上的程式和專案檔，PR 可以改測試專案或建置設定來影響量測結果；workflow 檔也是用 PR 分支上的版本，PR 可以把 `--config-from` 拿掉。這些都要靠 CODEOWNERS 和人審。
-- 第一關執行的是 PR 的測試程式，三關又在同一個 job 的同一個工作目錄裡跑。測試程式可以在執行中改動工作目錄（例如改寫 `tools/referee/` 底下的檔案），影響後面兩關。範本用 commit 當基準，移動 `origin/main` 這一招沒有用，但擋不住其他改法。審 PR 時要看測試程式有沒有做跟測試無關的事。
-- `--base`、`--config-from` 給的名稱同時是分支和 tag 時（例如有人推了一個叫 `origin/main` 的 tag），以結束碼 2 停下，要寫完整的名稱（`refs/remotes/origin/main`）或 commit。git 自己會優先用 tag。
-- 沒有被任何 `sources` 樣式比到、或被 `tests`、`exclude` 比到的檔案，三關都看不到。把程式搬到這些路徑，或寫成別的副檔名，就不受檢查。
-- gate.sh 讀的是工作目錄的設定檔，不用 `--config-from`：本機的 hook 擋不住 AI 用 Bash 改設定，CI 才擋得住。
-- 整個專案掃描式的測試（掃全部文件、全部原始碼）會掃到 `tools/referee/`，要照上面的安裝步驟加豁免。
-- 覆蓋率跟執行的平台有關。測試檔有 build constraint（例如 `//go:build !windows`）時，那些測試在別的平台不會跑，被它們測到的函式覆蓋率就不同，CRAP 也跟著不同。例如 BeThere 的 serve 測試在 Windows 上不跑，同一個 base 下，沒改到但超標的函式在本機 Windows 是 31 個，在 CI 的 ubuntu 是 30 個。以 CI 的結果為準。
-- 抓錯率和測到率是所有改到的行合起來算的比例。一個函式完全沒被測到時，比例可能照樣過門檻，這種情況由「每個函式至少抓到一個」擋下。但這條規則只要求一個：函式只測了一條路徑、或測試沒有斷言但改壞後剛好當掉或逾時，都算抓到。測試夠不夠還是要靠兩個比例和人看。
-- 「每個函式至少抓到一個」只在第三關判定，gate.sh 不跑第三關，AI 結束對話時擋不到，要等 CI。
-- 不在任何函式範圍裡的程式（套件層的變數初始化、C# 的頂層陳述式）不參與「每個函式至少抓到一個」。Go 檢查員找函式結尾的方式是找單獨一行的 `}`，函式裡的原始字串剛好有這樣一行時，範圍會提早結束，後面的改壞版本就不算在這個函式裡。
-- Go 檢查員用預設的 package 範圍時，只被別的套件的測試跑到的函式，改壞的版本都是「測試沒跑到」，會被判成沒有測試。兩個 `inspector` 都改用 `--coverage-scope module`。
-- 完全沒有測試的專案，第一關會通過：`go test ./...`、`dotnet test` 在沒有任何測試時結束碼是 0。
-- 「新寫的程式沒附測試」不一定會被第二關擋下。新程式如果在既有測試會走到的路徑上，覆蓋率一開始就是 100%，CRAP 只看複雜度。這時要靠第三關的抓錯率，看既有測試有沒有真的驗證新程式的行為。
-
-C# 檢查員：
-
-- 只支援 SDK 風格、.NET 6 以上的專案。舊式 .NET Framework 的 csproj 不支援。
-- 沒有被任何測試專案引用的專案，Stryker.NET 不會改壞它，第三關沒有東西可判定；第二關的覆蓋率是 0，會擋下。
-- 同一個位置的同一種改法（例如 `<=` 改成 `<` 和改成 `>`，都叫 `Equality mutation`），Stryker.NET 回報的欄位一樣，排除清單沒辦法只排除其中一個。
-- Windows 上，Stryker.NET 的檔案路徑到 260 字元就讀不到自己的版本而當掉。檢查員安裝後會先檢查，路徑太長時請把 `REFEREE_TOOLS_DIR` 設到短一點的路徑（例如 `C:\referee-tools`）。預設的 `~/.cache/quality-referee` 不會碰到。
-- 用 deterministic build、SourceLink（例如 `ContinuousIntegrationBuild=true`）時，coverlet 報告裡的檔案路徑可能對不回原始碼，覆蓋率會變成 0。還沒驗證過。
-- 只有頂層陳述式（top-level statements）的 `Program.cs` 不會列成函式。
-- 同一個位置有一個改壞版本編譯不過時，Stryker.NET 可能把那個位置其他編得過的改壞版本也一起標成無效（`NOT_VIABLE`），那些行在第三關就沒有被判定。例如 `cart.Lines.Count == 0`：「`Count` 改成 `Sum`」編不過（`Count` 是屬性），同一欄的「`==` 改成 `!=`」也跟著被標成無效。無效的版本不算進抓錯率和測到率，文字報告也不會顯示，要看 JSON 報告的 `mutation.mutants` 裡 `status` 是 `NOT_VIABLE` 的項目（計數在 `mutation.counts.NOT_VIABLE`）。
-
-## 開發
-
-```
-python -m unittest                    # 單元測試和端到端測試（用假檢查員，不需要 Go；有 dotnet 時另外測 C# 工具的建置隔離）
-python selftest.py                    # 全部範例
-python selftest.py go                 # Go 範例專案的全部情境（含 gate.sh），要 Go 和網路（第一次裝 gocyclo、gremlins）
-python selftest.py csharp             # C# 範例專案的全部情境（含照 README 掛上、gate.sh），要 .NET SDK 10 和網路
-python selftest.py go --only 排除     # 只跑名稱含「排除」的情境
-python dev/parity_qt.py sample        # 和 quality-tools v2.4.0 對照範例專案的 CRAP 表和抓錯計數
-python dev/parity_qt.py bethere       # 同上，對 BeThere 的暫存複本，抓錯計數要 45 分鐘左右
-python dev/walkthrough_bethere.py     # 照這份 README，在 BeThere 的暫存複本上掛 submodule、複製範本、走一遍
-```
-
-selftest 的 gate.sh 情境把這個 repo 的 `git ls-files` 複製到範例的 `tools/referee/`（像 submodule 一樣），再照「安裝到專案」的步驟複製範本，所以只有已經加入 git 的檔案會被複製。
-
-## 驗證狀態
-
-已驗證：
-
-- 單元測試、selftest 的 Go 範例情境（含 gate.sh 情境）：本機 Windows（Git for Windows 的 bash），以及每次推送和 PR 時的 GitHub Actions（`.github/workflows/selftest.yml`，ubuntu-latest）。
-- 和 quality-tools v2.4.0 對照：Go 範例專案的 CRAP 表和抓錯計數（package、module 兩種範圍）；BeThere 整個專案的 CRAP 表（module 範圍，329 列）和 `internal/rundown` 的抓錯計數。
-- 照這份 README 在 BeThere 的暫存 clone 掛上工具：第一、二關通過；改壞一個測試時 gate.sh 擋下。
-- BeThere 實際導入（v0.1.0，module 範圍）：以 readbody-split 合併前的 main 當 base 跑 `check`，三關通過（改到 30 個函式；抓錯檢查 47 個改壞版本全抓到，排除清單用上 1 筆）。
-- Claude Code 實際觸發 Stop hook：在 BeThere 的對話裡改壞一個測試，結束回覆時 gate.sh 擋下，訊息是「第一關沒過」。
-- `templates/go/workflows/go.yml` 在 GitHub Actions（ubuntu-latest）上跑：BeThere 的 PR #13～#16。submodule 是公開 repo，不用存取權杖。PR #16 有改到 Go 程式，第二、三關在 CI 上實際判定：改到 4 個函式，產生 5 個改壞版本。第一個 commit 沒抓到 1 個，抓錯率 80%，剛好等於門檻，所以通過，報告也列出了沒抓到的那一個。補上測試後 5 個全部抓到，數字和本機一致。
-
-- macOS（arm64，.NET SDK 10.0.101，Python 3.13，系統的 bash 3.2）：單元測試、selftest 的 Go 和 C# 範例情境；照 README 在一個另外建的 C# 專案（購物車、折扣、運費，83 個測試，用中央套件管理）掛上 submodule 和範本，三關的判定、刻意失敗的情境（測試改壞、CRAP 超標、刪掉邊界測試），以及 Claude Code 實際觸發 Stop hook 時 gate.sh 擋下，都符合預期；手算的 21 個函式的複雜度和檢查員算的一樣。
-- C# 檢查員：selftest 的 C# 範例情境（CRAP、抓錯檢查、照 README 掛上 submodule 和範本、gate.sh），本機 Windows（.NET SDK 10）和 GitHub Actions（ubuntu-latest）。範例的每個函式旁邊寫了手算的複雜度，檢查員算出來的都一樣。工具快取目錄放在塞了惡意設定檔的上層目錄底下，照樣建置成功。
-
-還沒驗證：
-
-- C# 檢查員還沒有在真實專案試點過（上面 macOS 的 C# 專案是為了驗證另外建的）；`templates/csharp/workflows/csharp.yml` 還沒在專案的 runner 上跑過。
-- C# 檢查員在 .NET 6～9 的 SDK 上還沒跑過（selftest 用 .NET 10）。
-- CI 實際擋下 PR（結束碼 1 讓 workflow 失敗）還沒在 runner 上發生過。判定和結束碼跟本機相同，本機和 selftest 都驗證過結束碼 1；workflow 的每個步驟都是直接執行裁判的指令，結束碼不是 0 時，GitHub Actions 會讓那一步失敗。
-- Gitea 的 act_runner 支不支援範本用的 v7 actions（Node 24）。
+| 想知道什麼 | 看哪裡 |
+|---|---|
+| 防止 AI 或 PR 改門檻、改設定，以及還擋不住的改法 | [docs/鎖定規則.md](docs/鎖定規則.md) |
+| 設定檔每個鍵的規則、排除清單、記分表和報告的格式 | [docs/合約.md](docs/合約.md) |
+| Stop hook 和 CI workflow 的行為 | [docs/Hook與CI.md](docs/Hook與CI.md) |
+| 標準檢查員的參數、需求和限制 | [docs/Go檢查員.md](docs/Go檢查員.md)、[docs/CSharp檢查員.md](docs/CSharp檢查員.md) |
+| 請 AI 替專案建立測試 | [docs/AI導入指引.md](docs/AI導入指引.md) |
+| 判定規則本身看不到的情況 | [docs/已知限制.md](docs/已知限制.md) |
+| 在哪些平台和專案上驗證過 | [docs/驗證狀態.md](docs/驗證狀態.md) |
+| 三道關的觀念，以及分階段導入 | [教材/](教材/README.md) |
+| 裁判、檢查員、專案、審核的人各負責什麼 | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| 改這個工具本身 | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 ## 授權
 

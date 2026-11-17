@@ -13,6 +13,6 @@
 # CI 怎麼跑三道檢查，以及這份 CODEOWNERS 自己
 /.github/                   @your-org/quality-owners
 /.gitea/                    @your-org/quality-owners
-# AI 的權限設定、結束對話時的檢查、給 AI 的規則
+# AI 的權限設定、AI 回覆結束時的檢查、給 AI 的規則
 /.claude/                   @your-org/quality-owners
 /CLAUDE.md                  @your-org/quality-owners
