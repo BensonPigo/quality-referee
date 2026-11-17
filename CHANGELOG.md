@@ -11,6 +11,7 @@
 - Stop hook 的觸發時機寫成「每次回覆結束時」，不再寫「結束對話時」（README、`Hook與CI.md`、`已知限制.md`）。
 - README 依第二輪試讀回饋：C# 標明還在試驗階段；補 Stop hook 的白話說明、抓錯率和測到率的數字例子、其他語言怎麼起手；`python` 的說明統一寫在「需求」；「把規則鎖起來」縮成一段加連結，副作用補上 CODEOWNERS 也鎖 `CLAUDE.md`；新增「擋不住什麼」摘要；「誰扮演什麼角色」移到 `CONTRIBUTING.md`。
 - `docs/合約.md`：context 範例的 `exclude` 改成 `tools/referee/`；報告範例的 `referee_version` 改成 `0.4.0`。
+- `docs/` 和 `CONTRIBUTING.md` 不再寫維護者私人專案的名稱，改成一般的描述。
 - 範本 `CLAUDE.md`、`CODEOWNERS`：「結束對話時」改成「每次回覆結束時」；`CLAUDE.md` 的手動指令註明只有 `python3` 的機器要換。只改措辭，已經複製到專案裡的不用重新複製。
 - `驗證狀態.md` 改成表格，驗證過程的細節（PR 編號、各次的數字）不再保留。
 - `.referee.json` 每個鍵的說明和排除清單的範例併進 `docs/合約.md`，README 不再重複一份。

@@ -17,6 +17,6 @@ python tools/referee/inspectors/go.py functions|mutants [--coverage-scope packag
 
 ## 限制
 
-- module 範圍的抓錯檢查會跑到被排除套件的測試。gremlins v0.6.0 的 `--integration` 一律從模組根目錄跑 `go test ./...`，`exclude` 裡的套件測試照樣會跑。排除的套件只要有一個測試失敗，檢查就以結束碼 2 停下（gremlins 執行失敗）。quality-tools v2.4.0 也一樣，用 package 範圍可以避開。
+- module 範圍的抓錯檢查會跑到被排除套件的測試。gremlins v0.6.0 的 `--integration` 一律從模組根目錄跑 `go test ./...`，`exclude` 裡的套件測試照樣會跑。排除的套件只要有一個測試失敗，檢查就以結束碼 2 停下（gremlins 執行失敗）。用 package 範圍可以避開。
 - 根目錄有 Go 套件時，gremlins 對根目錄的套件（`.`）一律跑 `./...`，不論範圍是 package 還是 module，都會跑到所有套件的測試，包含 `exclude` 裡的。同理，非根目錄的套件底下有被排除的子套件時，子套件的測試也會被跑到。
 - 找函式結尾的方式是找單獨一行的 `}`，函式裡的原始字串剛好有這樣一行時，範圍會提早結束，後面的改壞版本就不算在這個函式裡。

@@ -6,9 +6,14 @@ python selftest.py                    # 全部範例
 python selftest.py go                 # Go 範例專案的全部情境（含 gate.sh），要 Go 和網路（第一次裝 gocyclo、gremlins）
 python selftest.py csharp             # C# 範例專案的全部情境（含照 README 掛上、gate.sh），要 .NET SDK 10 和網路
 python selftest.py go --only 排除     # 只跑名稱含「排除」的情境
-python dev/parity_qt.py sample        # 和 quality-tools v2.4.0 對照範例專案的 CRAP 表和抓錯計數
-python dev/parity_qt.py bethere       # 同上，對 BeThere 的暫存複本，抓錯計數要 45 分鐘左右
-python dev/walkthrough_bethere.py     # 照 README，在 BeThere 的暫存複本上掛 submodule、複製範本、走一遍
+```
+
+`dev/` 底下的兩支腳本只有維護者能跑：它們要用到維護者本機上另外兩個 repo（之前用的量測工具，以及一個真實的 Go 專案），路徑寫死在腳本裡。
+
+```
+python dev/parity_qt.py sample        # 和之前用的量測工具對照範例專案的 CRAP 表和抓錯計數
+python dev/parity_qt.py bethere       # 同上，對那個 Go 專案的暫存複本，抓錯計數要 45 分鐘左右
+python dev/walkthrough_bethere.py     # 照 README，在那個 Go 專案的暫存複本上掛 submodule、複製範本、走一遍
 ```
 
 selftest 的 gate.sh 情境把這個 repo 的 `git ls-files` 複製到範例的 `tools/referee/`（像 submodule 一樣），再照 README「安裝到專案」的步驟複製範本，所以只有已經加入 git 的檔案會被複製。
