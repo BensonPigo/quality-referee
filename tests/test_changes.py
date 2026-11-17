@@ -83,6 +83,27 @@ class ChangedLines(unittest.TestCase):
         commit_all(root)
         self.assertEqual(changed_lines("main", root), {})
 
+    def test_gitattributes_cannot_hide_changes(self):
+        # .gitattributes 寫 -diff 時 git diff 只印「Binary files differ」，沒有任何 hunk，等於這次什麼都沒改
+        root = self.repo({"a.go": lines(10)})
+        write(root, ".gitattributes", "*.go -diff\n")
+        write(root, "a.go", lines(10).replace("line 4\n", "CHANGED\n"))
+        self.assertEqual(changed_lines("main", root)["a.go"], [(4, 4)])
+        write(root, ".gitattributes", "*.go binary\n")
+        self.assertEqual(changed_lines("main", root)["a.go"], [(4, 4)])
+
+    def test_ambiguous_base_is_an_error(self):
+        # 同名的 tag 會搶在分支前面被 git 解析：推一個叫 origin/main 的 tag 就能換掉比較基準
+        root = self.repo({"a.go": lines(3)})
+        git(root, "checkout", "-q", "-b", "feature")
+        write(root, "a.go", lines(3).replace("line 2\n", "X\n"))
+        commit_all(root)
+        git(root, "tag", "main", "HEAD")
+        with self.assertRaises(RefereeError) as cm:
+            changed_lines("main", root)
+        self.assertIn("main 同時是", str(cm.exception))
+        self.assertEqual(changed_lines("refs/heads/main", root), {"a.go": [(2, 2)]})
+
     def test_unknown_base(self):
         root = self.repo({"a.go": lines(3)})
         with self.assertRaises(RefereeError) as cm:

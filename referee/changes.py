@@ -10,7 +10,7 @@ from collections import defaultdict
 
 from referee.errors import RefereeError
 from referee.paths import normalize
-from referee.proc import git
+from referee.proc import check_ref, git
 
 
 def changed_lines(base, root):
@@ -22,9 +22,12 @@ def changed_lines(base, root):
         merge_base = git(root, "merge-base", base, "HEAD").strip()
     except RefereeError as e:
         raise RefereeError("找不到 {} 和 HEAD 的分岔點（CI 上要把 git 歷史完整抓下來）\n{}".format(base, e))
+    check_ref(root, base, "--base")
 
-    diff = git(root, "diff", "-U0", "--no-color", "--no-ext-diff", "--find-renames", "--relative",
-               "--ignore-cr-at-eol", merge_base, "--")
+    # --text：.gitattributes 寫了 -diff 或 binary 的檔案，git diff 只印「Binary files differ」，沒有 hunk，
+    # 改到的行就變成零。一律當文字比，改 .gitattributes 藏不住改動
+    diff = git(root, "diff", "-U0", "--no-color", "--no-ext-diff", "--no-textconv", "--text", "--find-renames",
+               "--relative", "--ignore-cr-at-eol", merge_base, "--")
     changed = defaultdict(list)
     file = None
     for line in diff.splitlines():

@@ -6,8 +6,10 @@
 import copy
 import json
 import os
+import subprocess
 
 from referee.errors import RefereeError
+from referee.proc import check_ref, git
 
 CONFIG_FILE = ".referee.json"
 GATES = ["test", "crap", "mutation"]
@@ -32,16 +34,52 @@ DEFAULTS = {
 }
 
 
-def load_config(root):
+def load_config(root, ref=None):
+    """讀工作目錄的設定檔。ref 有給（--config-from）就改讀那個分支上的版本，見 _read_from_ref。"""
     path = os.path.join(root, CONFIG_FILE)
-    if not os.path.exists(path):
+    text = None
+    if os.path.exists(path):
+        try:
+            with open(path, "rb") as f:
+                text = f.read()
+        except OSError as e:
+            raise RefereeError("讀不到 {}：{}".format(CONFIG_FILE, e))
+    if ref is not None:
+        text = _read_from_ref(root, ref, text)
+    if text is None:
         raise RefereeError("找不到 {}，請在專案根目錄執行".format(CONFIG_FILE))
     try:
-        with open(path, encoding="utf-8-sig") as f:
-            raw = json.load(f)
+        raw = json.loads(text.decode("utf-8-sig"))
     except ValueError as e:
         raise RefereeError("{} 不是合法的 JSON：{}".format(CONFIG_FILE, e))
     return validate(raw)
+
+
+def _read_from_ref(root, ref, local):
+    """回傳 ref 上的設定檔內容（bytes）；local 是工作目錄的內容，沒有檔案是 None。
+
+    CI 用它讀 base 分支的設定：門檻、gates、exclude 在 PR 裡被改鬆也不會生效，要合併之後才算數。
+    ref 上還沒有設定檔（第一次導入）就退回工作目錄的。不管用哪一份，都印出來讓人看得到。
+    """
+    check_ref(root, ref, "--config-from")
+    # 只有「那個分支上確定沒有這個檔案」才退回工作目錄的：ls-tree 成功而且沒有輸出。git 出任何錯都停下，不退回
+    entry = git(root, "ls-tree", ref, "--", "./" + CONFIG_FILE).strip()
+    if not entry:
+        print("設定檔：{} 還沒有 {}，改用這個分支上的（第一次導入才會這樣）".format(ref, CONFIG_FILE))
+        return local
+    if entry.split()[1] != "blob" or not entry.startswith("100"):
+        raise RefereeError("--config-from：{} 的 {} 不是一般檔案".format(ref, CONFIG_FILE))
+    r = subprocess.run(["git", "cat-file", "blob", entry.split()[2]], cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if r.returncode != 0:
+        raise RefereeError("--config-from：讀不到 {} 的 {}：\n{}".format(ref, CONFIG_FILE, r.stderr.decode("utf-8", "replace")))
+    print("設定檔：讀 {} 的 {}".format(ref, CONFIG_FILE))
+    if local is None or _lines(local) != _lines(r.stdout):
+        print("注意：這個分支上的 {0} 和 {1} 的不一樣，這次不採用；設定的改動要合併進 {1} 之後才生效".format(CONFIG_FILE, ref))
+    return r.stdout
+
+
+def _lines(data):
+    return data.replace(b"\r\n", b"\n")
 
 
 def validate(raw):

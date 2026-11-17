@@ -1,5 +1,18 @@
 # 更新記錄
 
+## v0.4.0
+
+把規則鎖起來：CI 的設定檔改讀 base 的版本、CODEOWNERS 範本，以及審查時找到的幾個繞過方式。判定規則、記分表和報告的格式都沒變。
+
+- 四個指令新增 `--config-from <分支或 commit>`：設定檔改讀那個 commit 上的 `.referee.json`，工作目錄裡改過的設定這次不採用，並印出來。只有那個 commit 上確定沒有設定檔（第一次導入）才改用工作目錄的。排除清單照樣讀工作目錄的，比那個 commit 多了幾項會印出來。
+- workflow 範本：三個步驟都加 `--config-from`；`--base` 和 `--config-from` 都改用 `github.event.pull_request.base.sha`，不用分支名稱。之前 CI 讀的是 PR 自己的設定檔，在 PR 裡把門檻改鬆就會過。
+- 新增 CODEOWNERS 範本（`templates/<語言>/CODEOWNERS`），README 新增「把規則鎖起來」。
+- 改到的行：`git diff` 加 `--text --no-textconv`。之前在 `.gitattributes` 加一行 `*.go -diff`，git 就不輸出改到的行，第二、三關都回報「這次沒有改到」而通過。
+- `--base`、`--config-from` 給的名稱同時是分支和 tag 時，以結束碼 2 停下。git 會優先解析 tag，推一個叫 `origin/main` 的 tag 就能換掉比較基準。
+- 範本的 `exclude` 從 `tools/` 改成 `tools/referee/`。之前把程式搬到 `tools/` 底下任何目錄就不受檢查。
+- `.referee.json` 是目錄時以結束碼 2 停下，不再印 traceback。
+- **升級注意**：workflow 和 `.referee.json` 是複製到專案裡的，要自己改：workflow 照新範本加上 `--config-from` 並改用 base 的 commit；`exclude` 的 `tools/` 改成 `tools/referee/`（專案自己在 `tools/` 底下有別的程式要排除的話，逐一列出）。新的 `CODEOWNERS` 照 README 複製並設定分支保護。
+
 ## v0.3.0
 
 第三關新增「每個函式至少抓到一個改壞的版本」、門檻加上界線、gate.sh 不再因為設定檔壞掉而放行、新增給 AI 的導入指引。記分表的格式沒變；報告升成 `referee.report/2`。

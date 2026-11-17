@@ -8,6 +8,7 @@ function 只用來顯示和人工檢查，不參與比對。
 
 import json
 import os
+import subprocess
 
 from referee.errors import RefereeError
 from referee.model import EQUIVALENT, EXCLUDED_MUTATOR
@@ -28,6 +29,24 @@ def load(path):
     except ValueError as e:
         raise RefereeError("{} 不是合法的 JSON：{}".format(name, e))
     return validate(data, name)
+
+
+def added_since(root, ref, path):
+    """排除清單（工作目錄的）比 ref 上的多了幾項。CI 用 --config-from 時印出來，提醒審核的人這些項目是這次才加的。
+
+    排除清單不像設定檔改讀 ref 上的：排除項目要跟它對應的程式改動放在同一個 PR 給人核准。
+    ref 上沒有清單、或那一份讀不懂，都當成空的，也就是工作目錄的每一項都算新加的。
+    """
+    current = load(os.path.join(root, path))
+    r = subprocess.run(["git", "show", "{}:./{}".format(ref, path)], cwd=root, stdout=subprocess.PIPE,
+                       stderr=subprocess.DEVNULL)
+    try:
+        before = json.loads(r.stdout.decode("utf-8-sig")) if r.returncode == 0 else []
+    except ValueError:
+        before = []
+    if not isinstance(before, list):
+        before = []
+    return sum(1 for e in current if e not in before)
 
 
 def validate(data, path=".referee-equivalents.json"):

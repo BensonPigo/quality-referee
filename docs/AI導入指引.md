@@ -113,7 +113,8 @@ dotnet add <專案名>.Tests reference <專案名>
 三道關只判斷數字，下面這些要請人做，回報時列出來提醒：
 
 - 審測試：正確答案是不是照需求寫的，特別是標了「記錄現有行為」的那些。
-- 把規則鎖起來：CODEOWNERS 指定 `.referee.json`、`.referee-equivalents.json`、`.gitmodules`、CI 設定、`.claude/` 由誰審核；main 分支保護要求三關全過、至少一人核准；AI 用的帳號不給合併權限。
+- 把規則鎖起來：照 `tools/referee/README.md` 的「把規則鎖起來」，把 `.github/CODEOWNERS` 的審核者換成實際的人，main 分支保護要求三關全過、Code Owners 核准；AI 用的帳號不給合併權限。這些你做不了，也不該由你做。
+- 第一次導入的那個 PR，CI 用的是 PR 分支上的設定檔（main 還沒有）。請人特別看這個 PR 裡的 `.referee.json`。
 - 決定門檻（CRAP 最寬只能到 30）和第三關的範圍。
 - 核准排除清單的每一項。
 

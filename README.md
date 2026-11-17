@@ -50,6 +50,7 @@ cp tools/referee/templates/go/workflows/go.yml .github/workflows/referee.yml
 mkdir -p .claude/skills
 cp -r tools/referee/templates/go/.claude/skills/referee-onboard .claude/skills/
 cp tools/referee/templates/go/CLAUDE.md .
+cp tools/referee/templates/go/CODEOWNERS .github/CODEOWNERS
 ```
 
 C# 專案把上面的 `templates/go` 換成 `templates/csharp`，最後一行換成：
@@ -60,12 +61,39 @@ cp tools/referee/templates/csharp/workflows/csharp.yml .github/workflows/referee
 
 範本裡除了 workflow 都是點開頭的檔案（`.referee.json`、`.claude/` 等），`ls` 或 `ls -R` 看不到，要用 `ls -a`。
 
-`.claude/settings.json`、`gate.sh`、`.claude/skills/referee-onboard/`、`CLAUDE.md` 兩個語言的範本一模一樣。專案原本已有 `CLAUDE.md` 時，把範本的內容加進去，不要整份覆蓋。用 Gitea 的話，workflow 放 `.gitea/workflows/referee.yml`。接著：
+`.claude/settings.json`、`gate.sh`、`.claude/skills/referee-onboard/`、`CLAUDE.md`、`CODEOWNERS` 兩個語言的範本一模一樣。專案原本已有 `CLAUDE.md` 時，把範本的內容加進去，不要整份覆蓋。用 Gitea 的話，workflow 放 `.gitea/workflows/referee.yml`。接著：
 
 1. 打開 `.referee.json`，依專案調整（見下一節）。
 2. 專案裡有掃整個 repo 的檢查（例如掃全部 `.md` 連結、掃全部原始碼風格的測試）時，**把 `tools/referee/` 加進豁免**。submodule 裡有這個工具自己的文件和程式，不是專案的內容。
 3. 範本的 `.claude/settings.json` 把 `.referee.json`、`.referee-equivalents.json`、`.gitmodules`、`tools/referee/**`、`.github/**`、`.gitea/**`、`.claude/**` 設成 Claude Code 的編輯工具不能改，避免 AI 靠改門檻或設定讓檢查通過。專案原本已有 `.claude/settings.json` 時，合併 `permissions.deny` 和 `hooks.Stop`，不要整份覆蓋。
 4. 其他人 clone 專案時要加 `--recurse-submodules`，或 clone 之後執行 `git submodule update --init`。
+5. 把規則鎖起來（見下一節）。沒做這一步，AI 卡關時可以直接改門檻。
+
+## 把規則鎖起來
+
+三個地方要一起設，少一個就有洞：
+
+| 哪裡 | 做什麼 | 擋什麼 |
+|---|---|---|
+| `.claude/settings.json`（範本已設好） | 禁止 Claude Code 的編輯工具改設定檔、排除清單、工具、CI 設定 | AI 順手改設定。擋不住 AI 用 Bash 改檔 |
+| CI 的 `--config-from`（範本已設好） | 三個指令的設定檔都讀 base 的 commit 上的版本 | PR 裡把門檻、`gates`、`exclude`、檢查員指令改掉。改了也不生效，CI 的輸出會印「這次不採用」 |
+| `.github/CODEOWNERS` 加上分支保護（要自己設） | 改到規則檔案的 PR 要指定的人核准 | 其餘所有改法：排除清單、submodule 指到的版本、workflow 檔本身 |
+
+CODEOWNERS 和分支保護要做的事：
+
+1. 把 `.github/CODEOWNERS` 裡的 `@your-org/quality-owners` 換成實際負責審核的帳號或團隊。
+2. 在 GitHub 的 main 分支保護規則勾選「Require a pull request before merging」、「Require review from Code Owners」、「Dismiss stale pull request approvals when new commits are pushed」（不勾的話，核准之後還能再推新的 commit），並把「三道檢查」設成必須通過的檢查。
+3. AI 用的帳號不要列進 CODEOWNERS，也不要給合併權限和推 tag 的權限。
+
+`.github/CODEOWNERS` 是 GitHub 的格式和位置。Gitea 的 CODEOWNERS 語法不一樣，也還沒驗證過能不能強制核准，要照 Gitea 的文件另外設。
+
+`--config-from` 的代價：設定的改動要合併進 main 之後才生效。要調門檻或加排除目錄時，先單獨送一個改設定的 PR，合併後再送靠新設定才過得了的程式。
+
+排除清單 `.referee-equivalents.json` 不受 `--config-from` 影響，照樣讀 PR 分支上的：排除項目要跟它對應的程式改動放在同一個 PR 給人核准。所以 PR 自己加排除項目，CI 的第三關就會過，只有 CODEOWNERS 的核准擋得住。CI 的輸出會印「排除清單比 … 多了 N 項，這些項目要人核准」，審的人看到這一行就要去看清單。
+
+範本的 `exclude` 寫的是 `tools/referee/`，不是 `tools/`：寫 `tools/` 的話，把程式搬到 `tools/` 底下任何目錄就不受檢查。自己加排除目錄時也要注意範圍。
+
+base 分支上還沒有 `.referee.json` 時（第一次導入的那個 PR），`--config-from` 會改用 PR 分支上的，並在輸出寫明。
 
 ## 讓 AI 建立測試
 
@@ -90,6 +118,8 @@ python tools/referee/referee.py check --base origin/main --skip mutation --json 
 | `crap [--base B] [--json 檔]` | 第二關。有 `--base` 只檢查改到的函式，沒給就檢查整個專案。超標的函式後面附改善方向：「要拆函式」或「覆蓋率要到 X%」 |
 | `mutation [--base B] [--json 檔]` | 第三關。有 `--base` 只算改到的行、只看改到的函式。除了兩個比例，每個函式至少要有一個改壞的版本被抓到，不然列出來並判沒過 |
 | `check [--base B] [--skip 關...] [--json 目錄]` | 已啟用的關依 test → crap → mutation 的順序跑，第一個沒過就停，印出「停在第 N 關」。`--json` 每一關寫一份：`test.json`、`crap.json`、`mutation.json` |
+
+四個指令都可以加 `--config-from <分支>`：設定檔改讀那個分支上的 `.referee.json`，工作目錄裡改過的設定這次不採用。CI 用它讀 base 分支的設定（見「把規則鎖起來」）；本機平常不用加。
 
 結束碼：0 通過，1 沒過門檻，2 量測失敗或設定有誤。沒啟用（不在 `gates` 裡）的關印「還沒啟用」並以 0 結束。
 
@@ -146,7 +176,7 @@ python tools/referee/referee.py check --base origin/main --skip mutation --json 
 
 ## CI
 
-`workflows/go.yml`（複製成 `.github/workflows/referee.yml`）在 PR 進 main 時跑三關：`fetch-depth: 0` 和 `submodules: true` 抓完整歷史和工具，setup-go、setup-python，再依序執行 `test`、`crap --base origin/<base_ref>`、`mutation --base origin/<base_ref>`。submodule 的網址是這個 runner 抓不到的私有 repo 時，要在 checkout 步驟加存取權杖。
+`workflows/go.yml`（複製成 `.github/workflows/referee.yml`）在 PR 進 main 時跑三關：`fetch-depth: 0` 和 `submodules: true` 抓完整歷史和工具，setup-go、setup-python，再依序執行 `test`、`crap --base <base 的 commit>`、`mutation --base <base 的 commit>`，三個都帶 `--config-from <base 的 commit>`。基準用的是 PR 事件裡 base 的 commit（`github.event.pull_request.base.sha`），不是分支名稱。submodule 的網址是這個 runner 抓不到的私有 repo 時，要在 checkout 步驟加存取權杖。
 
 `workflows/csharp.yml` 一樣，只是把 setup-go 換成 setup-dotnet（範本寫 `10.0.x`，改成專案用的版本；專案有 `global.json` 的話改用 `global-json-file: global.json`）。
 
@@ -193,7 +223,12 @@ python tools/referee/inspectors/csharp.py mutants   [--target 方案或專案檔
 
 - module 範圍的抓錯檢查會跑到被排除套件的測試。gremlins v0.6.0 的 `--integration` 一律從模組根目錄跑 `go test ./...`，`exclude` 裡的套件測試照樣會跑。排除的套件只要有一個測試失敗，檢查就以結束碼 2 停下（gremlins 執行失敗）。quality-tools v2.4.0 也一樣，用 package 範圍可以避開。
 - 根目錄有 Go 套件時，gremlins 對根目錄的套件（`.`）一律跑 `./...`，不論範圍是 package 還是 module，都會跑到所有套件的測試，包含 `exclude` 裡的。同理，非根目錄的套件底下有被排除的子套件時，子套件的測試也會被跑到。
-- `.claude/settings.json` 的 `Edit(...)` 規則只擋 Claude Code 的編輯工具，擋不住 AI 用 Bash 改檔，而且只在這個 repo 開的對話生效，在別的目錄開的對話改這個 repo 的檔案不受限制。要確保門檻不被改，要靠 CI 和 CODEOWNERS 之類的審查。
+- `.claude/settings.json` 的 `Edit(...)` 規則只擋 Claude Code 的編輯工具，擋不住 AI 用 Bash 改檔，而且只在這個 repo 開的對話生效，在別的目錄開的對話改這個 repo 的檔案不受限制。門檻被改鬆由 CI 的 `--config-from` 擋；排除清單、submodule 的版本、workflow 檔被改，要靠 CODEOWNERS 和分支保護，沒設就擋不住。
+- `--config-from` 只管設定檔。設定檔裡的指令（`test.command`、檢查員）執行的是 PR 分支上的程式和專案檔，PR 可以改測試專案或建置設定來影響量測結果；workflow 檔也是用 PR 分支上的版本，PR 可以把 `--config-from` 拿掉。這些都要靠 CODEOWNERS 和人審。
+- 第一關執行的是 PR 的測試程式，三關又在同一個 job 的同一個工作目錄裡跑。測試程式可以在執行中改動工作目錄（例如改寫 `tools/referee/` 底下的檔案），影響後面兩關。範本用 commit 當基準，移動 `origin/main` 這一招沒有用，但擋不住其他改法。審 PR 時要看測試程式有沒有做跟測試無關的事。
+- `--base`、`--config-from` 給的名稱同時是分支和 tag 時（例如有人推了一個叫 `origin/main` 的 tag），以結束碼 2 停下，要寫完整的名稱（`refs/remotes/origin/main`）或 commit。git 自己會優先用 tag。
+- 沒有被任何 `sources` 樣式比到、或被 `tests`、`exclude` 比到的檔案，三關都看不到。把程式搬到這些路徑，或寫成別的副檔名，就不受檢查。
+- gate.sh 讀的是工作目錄的設定檔，不用 `--config-from`：本機的 hook 擋不住 AI 用 Bash 改設定，CI 才擋得住。
 - 整個專案掃描式的測試（掃全部文件、全部原始碼）會掃到 `tools/referee/`，要照上面的安裝步驟加豁免。
 - 覆蓋率跟執行的平台有關。測試檔有 build constraint（例如 `//go:build !windows`）時，那些測試在別的平台不會跑，被它們測到的函式覆蓋率就不同，CRAP 也跟著不同。例如 BeThere 的 serve 測試在 Windows 上不跑，同一個 base 下，沒改到但超標的函式在本機 Windows 是 31 個，在 CI 的 ubuntu 是 30 個。以 CI 的結果為準。
 - 抓錯率和測到率是所有改到的行合起來算的比例。一個函式完全沒被測到時，比例可能照樣過門檻，這種情況由「每個函式至少抓到一個」擋下。但這條規則只要求一個：函式只測了一條路徑、或測試沒有斷言但改壞後剛好當掉或逾時，都算抓到。測試夠不夠還是要靠兩個比例和人看。

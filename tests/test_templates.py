@@ -20,7 +20,7 @@ class GoTemplate(unittest.TestCase):
     def test_referee_json_passes_config_validation(self):
         cfg = config.validate(load(".referee.json"))
         self.assertEqual(cfg["gates"], ["test", "crap", "mutation"])
-        self.assertEqual(cfg["exclude"], ["tools/", "vendor/"])
+        self.assertEqual(cfg["exclude"], ["tools/referee/", "vendor/"])  # 不能寫 tools/：程式搬到 tools/別的目錄/ 就不受檢查
         for gate in ("crap", "mutation"):
             self.assertIn("tools/referee/inspectors/go.py", cfg[gate]["inspector"])
 
@@ -65,7 +65,7 @@ class CSharpTemplate(unittest.TestCase):
         cfg = config.validate(self.load(".referee.json"))
         self.assertEqual(cfg["gates"], ["test", "crap", "mutation"])
         self.assertEqual(cfg["sources"], ["**/*.cs"])
-        self.assertEqual(cfg["exclude"], ["tools/"])
+        self.assertEqual(cfg["exclude"], ["tools/referee/"])
         self.assertEqual(cfg["crap"]["inspector"], ["python", "tools/referee/inspectors/csharp.py", "functions"])
         self.assertEqual(cfg["mutation"]["inspector"], ["python", "tools/referee/inspectors/csharp.py", "mutants"])
 
@@ -95,10 +95,32 @@ class CSharpTemplate(unittest.TestCase):
             text = f.read()
         for needed in ("actions/setup-dotnet@", "fetch-depth: 0", "submodules: true", "actions/setup-python@",
                        "python3 tools/referee/referee.py test",
-                       "python3 tools/referee/referee.py crap --base origin/${{ github.base_ref }}",
-                       "python3 tools/referee/referee.py mutation --base origin/${{ github.base_ref }}"):
+                       "python3 tools/referee/referee.py crap --base ${{ github.event.pull_request.base.sha }}",
+                       "python3 tools/referee/referee.py mutation --base ${{ github.event.pull_request.base.sha }}"):
             self.assertIn(needed, text)
         self.assertNotIn("setup-go", text)
+
+    def test_workflows_read_the_config_from_the_base_branch(self):
+        # PR 自己改鬆的門檻不能生效：三個指令都要帶 --config-from
+        for path in (os.path.join(CSHARP, "workflows", "csharp.yml"), os.path.join(TEMPLATE, "workflows", "go.yml")):
+            with open(path, encoding="utf-8") as f:
+                runs = [line for line in f if "referee.py" in line and line.lstrip().startswith("run:")]
+            self.assertEqual(len(runs), 3, path)
+            for line in runs:
+                self.assertIn("--config-from ${{ github.event.pull_request.base.sha }}", line)
+                # 用 commit，不用分支名稱：同名的 tag、或測試程式在執行中移動 origin/main，都換不掉 commit
+                self.assertNotIn("base_ref", line)
+
+    def test_codeowners_covers_every_file_the_ai_must_not_change(self):
+        text = read_bytes(CSHARP, "CODEOWNERS")
+        self.assertEqual(text, read_bytes(TEMPLATE, "CODEOWNERS"))
+        owned = [line.split()[0] for line in text.decode("utf-8").splitlines() if line and not line.startswith("#")]
+        # 和 settings.json 禁止 AI 編輯的路徑對齊，再加上 CLAUDE.md
+        deny = self.load(".claude/settings.json")["permissions"]["deny"]
+        for rule in deny:
+            path = rule[len("Edit("):-1].replace("/**", "")
+            self.assertTrue(any(o.rstrip("/") == path for o in owned), path)
+        self.assertIn("/CLAUDE.md", owned)
 
 
 if __name__ == "__main__":

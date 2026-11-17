@@ -1,0 +1,18 @@
+# 品質規則的檔案由指定的人審核：改到下面任何一個檔案的 PR，要這些人核准才能合併。
+# 放到專案的 .github/CODEOWNERS（Gitea 放 .gitea/CODEOWNERS），把 @your-org/quality-owners 換成實際的帳號或團隊。
+# 光有這個檔案不會擋：還要在 main 的分支保護規則勾選「Require review from Code Owners」，
+# 並且要求三道檢查通過。AI 用的帳號不要列在這裡，也不要給合併權限。
+
+# 門檻、啟用哪幾關、哪些目錄不檢查
+/.referee.json              @your-org/quality-owners
+# 「改了也沒差」的排除清單，每一項都要人判斷
+/.referee-equivalents.json  @your-org/quality-owners
+# 裁判的版本（submodule 指到哪個 commit）
+/.gitmodules                @your-org/quality-owners
+/tools/referee              @your-org/quality-owners
+# CI 怎麼跑三道檢查，以及這份 CODEOWNERS 自己
+/.github/                   @your-org/quality-owners
+/.gitea/                    @your-org/quality-owners
+# AI 的權限設定、結束對話時的檢查、給 AI 的規則
+/.claude/                   @your-org/quality-owners
+/CLAUDE.md                  @your-org/quality-owners
