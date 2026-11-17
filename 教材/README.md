@@ -16,4 +16,4 @@
 
 01～03 的範例各自是獨立的 Go 模組（各有 `go.mod`），在該目錄執行 `go test ./...` 就能跑，跟 quality-referee 本身的程式無關。
 
-這些文件講的是觀念，用的是通用的工具名稱（gocyclo、gremlins、Stryker 等）。quality-referee 怎麼把這些量測接成「裁判」和「檢查員」，見根目錄 README 的「誰扮演什麼角色」。
+這些文件講的是觀念，用的是通用的工具名稱（gocyclo、gremlins、Stryker 等）。quality-referee 怎麼把這些量測接成「裁判」和「檢查員」，見根目錄 README 的「支援的語言和工具」。
