@@ -1,6 +1,10 @@
 # 三道檢查（C#）：每個要合併進 main 的 PR 都會自動執行。
 # 放到目標 repo 的 .github/workflows/referee.yml；用 Gitea 的話放 .gitea/workflows/referee.yml。
 # 三個指令都讀 .referee.json 的 gates：沒啟用的關印「還沒啟用」並以 0 結束，所以一次上一關時，這份 workflow 不用改。
+# --config-from：設定檔讀 base 分支上的版本。PR 裡改過的門檻、gates、exclude 這次不採用，合併之後才生效，
+# 所以改設定的 PR 和靠新設定才過得了的程式要分開送。
+# 比較基準和設定檔的來源都用 base 的 commit，不用分支名稱：同名的 tag，或測試程式在執行中移動 origin/main，都換不掉 commit。
+# 這份檔案本身是用 PR 分支上的版本執行的，PR 可以改它。要靠 CODEOWNERS 和分支保護擋，見 README「把規則鎖起來」。
 name: 三道檢查
 
 on:
@@ -27,10 +31,10 @@ jobs:
           python-version: "3.12"
 
       - name: 第一關：單元測試
-        run: python3 tools/referee/referee.py test
+        run: python3 tools/referee/referee.py test --config-from ${{ github.event.pull_request.base.sha }}
 
       - name: 第二關：CRAP
-        run: python3 tools/referee/referee.py crap --base origin/${{ github.base_ref }}
+        run: python3 tools/referee/referee.py crap --base ${{ github.event.pull_request.base.sha }} --config-from ${{ github.event.pull_request.base.sha }}
 
       - name: 第三關：抓錯檢查
-        run: python3 tools/referee/referee.py mutation --base origin/${{ github.base_ref }}
+        run: python3 tools/referee/referee.py mutation --base ${{ github.event.pull_request.base.sha }} --config-from ${{ github.event.pull_request.base.sha }}

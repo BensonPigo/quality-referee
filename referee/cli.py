@@ -7,6 +7,8 @@
     python referee.py mutation [--base origin/main] [--json 檔名]
     python referee.py check [--base origin/main] [--skip 關...] [--json 目錄]
 
+每個指令都可以加 --config-from <分支>：設定檔改讀那個分支上的版本（CI 用來讀 base 分支的設定）。
+
 結束碼：0 通過，1 沒過門檻，2 量測失敗或設定有誤。
 """
 
@@ -14,7 +16,7 @@ import argparse
 import os
 import sys
 
-from referee import config, gates, report
+from referee import config, equivalents, gates, report
 from referee.errors import RefereeError
 
 
@@ -37,12 +39,19 @@ def main(argv=None):
     p.add_argument("--base", help="比較基準，沒給就用 .referee.json 的 base")
     p.add_argument("--skip", nargs="+", default=[], metavar="名稱", help="這次不跑的關：{}".format("、".join(config.GATES)))
     p.add_argument("--json", metavar="目錄", help="每一關各寫一份 JSON 報告（test.json、crap.json、mutation.json）到這個目錄")
+    for p in sub.choices.values():
+        p.add_argument("--config-from", metavar="分支", dest="config_from",
+                       help="設定檔改讀這個分支上的 .referee.json，例如 origin/main；這個分支上改過的設定這次不採用")
     args = parser.parse_args(argv)
 
     root = os.path.realpath(os.getcwd())
     os.chdir(root)
     try:
-        cfg = config.load_config(root)
+        cfg = config.load_config(root, args.config_from)
+        if args.config_from:
+            added = equivalents.added_since(root, args.config_from, cfg["mutation"]["equivalents_file"])
+            if added:
+                print("注意：排除清單比 {} 多了 {} 項，這些項目要人核准".format(args.config_from, added))
         if args.command == "check":
             return cmd_check(args, cfg, root)
         return cmd_gate(args.command, args, cfg, root)

@@ -4,7 +4,7 @@
   "gates": ["test", "crap", "mutation"],
   "sources": ["**/*.go"],
   "tests": ["**/*_test.go"],
-  "exclude": ["tools/", "vendor/"],
+  "exclude": ["tools/referee/", "vendor/"],
   "test": {"command": ["go", "test", "./..."]},
   "crap": {
     "threshold": 12,

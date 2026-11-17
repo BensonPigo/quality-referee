@@ -4,7 +4,7 @@
   "gates": ["test", "crap", "mutation"],
   "sources": ["**/*.cs"],
   "tests": ["**/*.Tests/**", "**/*.Test/**", "**/*.UnitTests/**"],
-  "exclude": ["tools/"],
+  "exclude": ["tools/referee/"],
   "test": {"command": ["dotnet", "test"]},
   "crap": {
     "threshold": 12,

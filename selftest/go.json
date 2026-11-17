@@ -1211,6 +1211,50 @@
     "shipping/never.go",
     "測試沒跑到  "
    ]
+  },
+  {
+   "name": "--config-from：這個分支把 CRAP 門檻改成 30，設定讀 main 的，照樣用 12 判定，Weight 沒過",
+   "edits": [
+    {
+     "file": "shipping/fee.go",
+     "old": "return 50",
+     "new": "return 55"
+    },
+    {
+     "file": ".referee.json",
+     "old": "\"threshold\": 12",
+     "new": "\"threshold\": 30"
+    }
+   ],
+   "steps": [
+    {
+     "run": [
+      "crap",
+      "--base",
+      "main"
+     ],
+     "exit": 0,
+     "contains": [
+      "門檻 30"
+     ]
+    },
+    {
+     "run": [
+      "crap",
+      "--base",
+      "main",
+      "--config-from",
+      "main"
+     ],
+     "exit": 1,
+     "contains": [
+      "設定檔：讀 main 的 .referee.json",
+      "這次不採用",
+      "覆蓋率要到 35%",
+      "超過門檻 12"
+     ]
+    }
+   ]
   }
  ]
 }
