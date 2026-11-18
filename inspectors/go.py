@@ -15,10 +15,12 @@ import argparse
 import json
 import os
 import posixpath
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -126,6 +128,126 @@ def func_end(lines, start):
         if lines[i].rstrip() == "}":
             return i + 1
     return start
+
+
+def parse_profile(text, module):
+    """go test -coverprofile 的內容 → {相對路徑: [(起行, 起欄, 迄行, 迄欄, 次數)]}。
+
+    -coverpkg 時同一個區塊會出現好幾次（每個測試套件一次），合併成一個，次數取最大值（有一次跑到就算跑到）。
+    """
+    merged = {}
+    for line in text.splitlines()[1:]:
+        try:
+            name, rest = line.rsplit(":", 1)
+            span, _, count = rest.split()
+            start, end = span.split(",")
+            sl, sc = (int(x) for x in start.split("."))
+            el, ec = (int(x) for x in end.split("."))
+            count = int(count)
+        except ValueError:
+            continue
+        file = name[len(module) + 1:] if name.startswith(module + "/") else name
+        key = (file, sl, sc, el, ec)
+        merged[key] = max(merged.get(key, 0), count)
+    profile = {}
+    for (file, sl, sc, el, ec), count in merged.items():
+        profile.setdefault(file, []).append((sl, sc, el, ec, count))
+    return profile
+
+
+def _contains(block, line, column):
+    """區塊的範圍照 gremlins v0.6.0 internal/coverage/profile.go 判斷。"""
+    sl, sc, el, ec, _ = block
+    if sl < line < el:
+        return True
+    if sl == el == line:
+        return sc <= column <= ec
+    return sl < el and ((line == sl and column >= sc) or (line == el and column <= ec))
+
+
+def in_block(blocks, line, column):
+    """位置是否落在任何一個覆蓋率區塊裡（不管次數）。"""
+    return any(_contains(b, line, column) for b in blocks)
+
+
+def _indent(text):
+    return len(text) - len(text.lstrip("\t"))
+
+
+def switch_header(lines, line):
+    """第 line 行的 case 條件所屬 switch 的 (行, 欄)，找不到回傳 None。
+
+    程式碼經過 gofmt：case 跟 switch 同一層縮排。分成好幾行的 case 清單，前一行一定以逗號結尾。
+    往上找 switch 時碰到比 case 淺的縮排、或同一層不是 case／default／switch 的行，就是走出了這個 switch，放棄。
+    """
+    i = line
+    while not lines[i - 1].lstrip("\t").startswith("case "):  # 多行 case 清單：往上找到 case 那一行
+        i -= 1
+        if i == 0 or not lines[i - 1].rstrip().endswith(","):
+            return None
+    level = _indent(lines[i - 1])
+    for j in range(i - 1, 0, -1):
+        text = lines[j - 1]
+        if not text.strip() or _indent(text) > level:
+            continue
+        word = text.strip()
+        if _indent(text) == level and (word.startswith("//") or re.fullmatch(r"\w+:", word)):
+            continue  # 同一層的註解，或 case 主體裡的 label（gofmt 把 label 往外縮一層）
+        if _indent(text) < level or not word.startswith(("case ", "default:", "switch")):
+            return None
+        if word.startswith("switch"):
+            return j, level + 1
+    return None
+
+
+def gap_candidates(items, profile):
+    """gremlins 判成 NOT_COVERED、但其實是 Go 覆蓋率不記錄的位置、而且有被執行到的改壞版本。
+
+    go test -coverprofile 的區塊不包含 switch 的 case 條件（區塊從冒號後面開始），gremlins 用區塊判斷有沒有跑到，
+    所以 case 條件上的改壞版本一律被判成 NOT_COVERED，不跑測試。switch 這個敘述本身在它前面的區塊裡，
+    那個區塊有跑到，case 條件才算被執行到。在次數 0 的區塊裡的才是真的沒跑到，不在候選裡。
+    取不到原本 token 的（original 是 None）沒辦法自己改壞，也不在候選裡。
+    """
+    out = []
+    for m in items:
+        if m["status"] != "NOT_COVERED" or not m.get("column") or m.get("original") is None:
+            continue
+        blocks = profile.get(m["file"])
+        lines = read_lines(m["file"])
+        if not blocks or not 0 < m["line"] <= len(lines) or in_block(blocks, m["line"], m["column"]):
+            continue
+        header = switch_header(lines, m["line"])
+        if header and any(b[4] > 0 and _contains(b, *header) for b in blocks):
+            out.append(m)
+    return out
+
+
+def mutate_source(data, line, column, original, replacement):
+    """把原始檔（bytes）第 line 行、第 column 個位元組起的 original 換成 replacement。位置上不是 original 時回傳 None。
+
+    欄位不含檔案開頭的 BOM（跟 read_lines 用 utf-8-sig 讀、gremlins 回報的一致）。
+    """
+    lines = data.split(b"\n")
+    if not 0 < line <= len(lines):
+        return None
+    text = lines[line - 1]
+    offset = column - 1 + (3 if line == 1 and text.startswith(b"\xef\xbb\xbf") else 0)
+    old, new = original.encode("utf-8"), replacement.encode("utf-8")
+    if text[offset:offset + len(old)] != old:
+        return None
+    lines[line - 1] = text[:offset] + new + text[offset + len(old):]
+    return b"\n".join(lines)
+
+
+def go_test_status(returncode, output=""):
+    """go test 的結束碼 → 狀態，照 gremlins v0.6.0 internal/engine/executor.go 的 getTestFailedStatus。
+
+    只有一處不同：編譯不過或 go vet 擋下時，go test 的結束碼也是 1，gremlins 算成 KILLED，這裡看輸出的 [build failed]
+    算成 NOT_VIABLE（測試根本沒跑）。補跑的對象是 case 條件，改壞後跟別的 case 常數重複而編譯不過的情況特別多，算抓到會灌高抓錯率。
+    """
+    if returncode == 1 and "[build failed]" in output:
+        return "NOT_VIABLE"
+    return {0: "LIVED", 1: "KILLED", 2: "NOT_VIABLE"}.get(returncode, "LIVED")
 
 
 def unchanged_files(d, files, listing):
@@ -304,6 +426,74 @@ def measure_functions(ctx, scope, workers):
 
 # ---------- mutants ----------
 
+def recheck_gaps(items, pkgs, coverpkg, goflags):
+    """gap_candidates 挑出的改壞版本自己補跑測試，就地改掉 status，回傳補跑了幾個。
+
+    跟 gremlins 跑法一致：覆蓋率和測試的範圍相同（coverpkg 給了就是整個模組的 ./...，否則是改壞版本所在的套件），
+    GOFLAGS 加 -count=1，結束碼的對應照 go_test_status。時限是量覆蓋率那次花的時間（至少 1 秒）x TIMEOUT_COEFFICIENT；
+    package 範圍時所有套件一起量，所以時限不會比 gremlins 每個套件各自量的短，只會少判逾時（算抓到）。
+    改壞的檔案用 go test -overlay 換進去，不動工作目錄裡的原始碼。
+    一次只跑一個：gremlins 每個 worker 在自己複製的目錄裡跑，這裡是在專案目錄裡跑，同時跑的話，
+    寫同一個檔案的測試會互相干擾而失敗，被算成抓到。
+    沒有任何 NOT_COVERED 時不量覆蓋率，什麼都不跑。
+    """
+    if not any(m["status"] == "NOT_COVERED" for m in items):
+        return 0
+    env = gremlins_env(os.environ, goflags)
+    module = go_module()
+    by_dir = dict((d, p) for p, d in pkgs)
+    counts = {}
+    with tempfile.TemporaryDirectory() as tmp:
+        profile_path = os.path.join(tmp, "cover.out")
+        cmd = ["go", "test", "-coverprofile=" + profile_path]
+        cmd += ["-coverpkg=" + coverpkg, "./..."] if coverpkg else [p for p, _ in pkgs]
+        started = time.monotonic()
+        r = run(cmd, env=env)
+        limit = max(time.monotonic() - started, 1.0) * float(TIMEOUT_COEFFICIENT)
+        if r.returncode != 0:
+            raise InspectorError("補跑 case 條件前量覆蓋率失敗：\n{}{}".format(r.stdout, r.stderr))
+        with open(profile_path, encoding="utf-8") as f:
+            profile = parse_profile(f.read(), module)
+        todo = gap_candidates(items, profile)
+        if not todo:
+            return 0
+        if any(f.strip("\x27\"").lstrip("-").startswith("overlay") for f in goflags.split()):
+            # 命令列的 -overlay 會蓋掉 GOFLAGS 裡的，使用者的 overlay 被丟掉後編譯不過，全部會被算成抓到
+            raise InspectorError("GOFLAGS 裡有 -overlay，跟補跑 switch case 條件用的 -overlay 衝突，"
+                                 "請拿掉 GOFLAGS 的 -overlay 再跑（go env GOFLAGS 查看）")
+        log("gremlins 把 {} 個 switch case 條件上的改壞版本判成測試沒跑到（Go 的覆蓋率不記錄那個位置），"
+            "這些 switch 有被執行，自己補跑測試 ...".format(len(todo)))
+        src = os.path.join(tmp, "mutated.go")
+        overlay = os.path.join(tmp, "overlay.json")
+        # 用相對路徑：go 以 $PWD 解析，從 symlink 的路徑進專案時，abspath 拿到的真實路徑對不上，overlay 會靜默失效
+        for m in todo:
+            target = "./..." if coverpkg else by_dir.get(posixpath.dirname(m["file"]) or ".")
+            try:
+                with open(m["file"], "rb") as f:
+                    mutated = mutate_source(f.read(), m["line"], m["column"], m["original"], m["replacement"])
+                if mutated is None or target is None:
+                    log("{}:{}:{} 沒辦法補跑（位置上不是 {}，或找不到所在的套件），維持測試沒跑到".format(
+                        m["file"], m["line"], m["column"], m["original"]))
+                    continue
+                with open(src, "wb") as f:
+                    f.write(mutated)
+                with open(overlay, "w", encoding="utf-8") as f:
+                    json.dump({"Replace": {m["file"]: src}}, f)
+                args = ["go", "test", "-overlay=" + overlay, "-timeout", "{}s".format(int(limit) + 2), "-failfast", target]
+                try:
+                    r = subprocess.run(args, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                       encoding="utf-8", errors="replace", timeout=limit)
+                    status = go_test_status(r.returncode, r.stdout)
+                except subprocess.TimeoutExpired:
+                    status = "TIMED_OUT"
+            except OSError as e:
+                raise InspectorError("補跑 {}:{} 失敗：{}".format(m["file"], m["line"], e))
+            m["status"] = status
+            counts[status] = counts.get(status, 0) + 1
+    log("補跑結果：" + ("、".join("{} {}".format(k, v) for k, v in sorted(counts.items())) or "沒有"))
+    return len(todo)
+
+
 def measure_mutants(ctx, scope, workers):
     module = go_module()
     all_pkgs = go_packages(ctx["exclude"], module)
@@ -369,6 +559,8 @@ def measure_mutants(ctx, scope, workers):
                 if original is not None:
                     item["original"], item["replacement"] = original, replacement
                 mutants.append(item)
+
+    recheck_gaps(mutants, pkgs, coverpkg, goflags)
 
     sheet = {"schema": sheets.MUTANTS_SCHEMA,
              "tools": {"gremlins": GREMLINS.rsplit("@", 1)[1]},
