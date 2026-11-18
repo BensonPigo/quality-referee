@@ -1255,6 +1255,37 @@
      ]
     }
    ]
+  },
+  {
+   "name": "switch 的 case 條件：Go 覆蓋率不記錄那個位置，gremlins 判成測試沒跑到，檢查員補跑後全部抓到",
+   "edits": [
+    {
+     "file": "grade/grade.go",
+     "content": "// Package grade 用沒有條件的 switch 分級。\npackage grade\n\n// Compare 比較 a、b。\nfunc Compare(a, b int) string {\n\tswitch {\n\tcase a > b:\n\t\treturn \"gt\"\n\tcase a == b:\n\t\treturn \"eq\"\n\t}\n\treturn \"lt\"\n}\n"
+    },
+    {
+     "file": "grade/grade_test.go",
+     "content": "package grade\n\nimport \"testing\"\n\nfunc TestCompare(t *testing.T) {\n\tif Compare(2, 1) != \"gt\" || Compare(1, 1) != \"eq\" || Compare(0, 1) != \"lt\" {\n\t\tt.Fatal(\"Compare\")\n\t}\n}\n"
+    }
+   ],
+   "run": [
+    "mutation",
+    "--base",
+    "main",
+    "--json",
+    "out-mut.json"
+   ],
+   "exit": 0,
+   "contains": [
+    "PASS"
+   ],
+   "json": "out-mut.json",
+   "json_values": {
+    "mutation.counts.NOT_COVERED": 0,
+    "mutation.counts.KILLED": 3,
+    "mutation.counts.LIVED": 0,
+    "mutation.undetected_functions": []
+   }
   }
  ]
 }
